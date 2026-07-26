@@ -111,15 +111,29 @@ class DeviceControlView extends WatchUi.View {
 
         if (_status.length() > 0) {
             dc.setColor(_status.find("Error") == 0 ? Graphics.COLOR_RED : Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(width / 2, height - 44, Graphics.FONT_XTINY, _status, Graphics.TEXT_JUSTIFY_CENTER);
+            dc.drawText(width / 2, height - 78, Graphics.FONT_XTINY, _status, Graphics.TEXT_JUSTIFY_CENTER);
         }
 
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
-        var hint = "UP/DOWN temp · SELECT power";
-        if (_zones.size() > 1) {
-            hint = hint + " · SWIPE zone";
+        // Round screens are narrower than dc.getWidth() near the bottom
+        // edge (the bezel cuts the chord short), so a single wide hint
+        // line clips on round watches even though there's room higher up.
+        // Splitting into two short lines keeps each one within the chord.
+        var isRound = System.getDeviceSettings().screenShape == System.SCREEN_SHAPE_ROUND;
+        if (isRound) {
+            dc.drawText(width / 2, height - 54, Graphics.FONT_XTINY, "UP/DOWN temp", Graphics.TEXT_JUSTIFY_CENTER);
+            var hint2 = "SELECT power";
+            if (_zones.size() > 1) {
+                hint2 = hint2 + " · SWIPE";
+            }
+            dc.drawText(width / 2, height - 32, Graphics.FONT_XTINY, hint2, Graphics.TEXT_JUSTIFY_CENTER);
+        } else {
+            var hint = "UP/DOWN temp · SELECT power";
+            if (_zones.size() > 1) {
+                hint = hint + " · SWIPE zone";
+            }
+            dc.drawText(width / 2, height - 40, Graphics.FONT_XTINY, hint, Graphics.TEXT_JUSTIFY_CENTER);
         }
-        dc.drawText(width / 2, height - 22, Graphics.FONT_XTINY, hint, Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     private function drawZonePageDots(dc as Graphics.Dc, width as Lang.Number, y as Lang.Number) as Void {
@@ -378,13 +392,20 @@ class DeviceControlDelegate extends WatchUi.BehaviorDelegate {
         return false;
     }
 
+    // On 5-button devices the physical UP/DOWN buttons are dispatched as
+    // onPreviousPage()/onNextPage() by BehaviorDelegate, not as onKey()
+    // KEY_UP/KEY_DOWN -- that branch in onKey() never actually fires on
+    // this hardware. These need to drive temperature (UP=previous page
+    // behavior, DOWN=next page behavior), matching onKey()/onSwipe()'s
+    // UP=increase/DOWN=decrease convention. Zone switching stays on swipe
+    // left/right only.
     function onPreviousPage() as Lang.Boolean {
-        _view.selectPreviousZone();
+        _view.increaseTemp();
         return true;
     }
 
     function onNextPage() as Lang.Boolean {
-        _view.selectNextZone();
+        _view.decreaseTemp();
         return true;
     }
 }

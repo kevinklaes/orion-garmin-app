@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Connect IQ app: control an Orion Sleep smart mattress topper (oga-fsf). -->
 <!--
-     type="watch-app" (Device App, NOT "widget"): this is a deliberately
-     launched control surface (turn the bed on/off, set temperature), used at
-     bedtime, not something that needs to be reachable mid-activity the way
-     GarminMerge's PR-review widget does (see that project's docs/TRANSPORT.md
-     for the widget-vs-app tradeoff this app does NOT need). Device Apps live
-     in the Apps menu and are explicitly launched, which matches "open the app,
-     control the bed, close it" better than the swipeable glance loop.
+     type="watch-app" (Device App): still explicitly launched from the Apps
+     menu for the actual control flow (turn the bed on/off, set temperature).
+     Also supplies a glance (OrionGlanceView, via getGlanceView()) for a
+     quick status peek from the widget swipe loop. The installed SDK
+     (9.2.0) no longer has a separate "widget" manifest type (see each
+     device's compiler.json under the SDK's Devices/ dir: appTypes lists
+     "glance" as a capability of watchApp, not a standalone "widget" type),
+     so a glance is just an extra view on an ordinary Device App, not a
+     type change. The glance does no network I/O (tight update budget); it
+     only reads OrionAuth.hasStoredToken(). Selecting it opens the same
+     getInitialView() flow a launch from the Apps menu would.
 
      Targets both watch and Edge device families (multi-family). Screen
      shapes/resolutions differ substantially between them (see compiler.json
@@ -40,9 +44,18 @@
             <!-- Watches: round (fenix7, MIP) and round (venu3, AMOLED) -->
             <iq:product id="fenix7"/>
             <iq:product id="venu3"/>
+            <!-- fenix 8, base sizes (43mm/47mm; pro/solar variants omitted,
+                 same one-representative-per-line pattern as fenix7) -->
+            <iq:product id="fenix843mm"/>
+            <iq:product id="fenix847mm"/>
             <!-- Edge bike computers: tall rectangular LCD -->
             <iq:product id="edge840"/>
             <iq:product id="edge1040"/>
+            <iq:product id="edge1050"/>
+            <!-- Forerunner: round, MIP, button+touch -->
+            <iq:product id="fr955"/>
+            <iq:product id="fr965"/>
+            <iq:product id="fr970"/>
         </iq:products>
 
         <iq:permissions>
