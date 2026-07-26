@@ -2,9 +2,8 @@
 //
 // getInitialView() routes on stored-auth state: no token yet ->
 // ProvisioningView (oga-2et's method picker / API-key / phone+OTP flow);
-// already signed in -> StatusView, which remains a placeholder until device
-// list + control UI (follow-up bead) lands — see docs/DESIGN.md for the
-// full plan and the file-by-file breakdown.
+// already signed in -> DeviceListView (oga-8m6's device list + control UI)
+// — see docs/DESIGN.md for the full plan and the file-by-file breakdown.
 using Toybox.Application;
 using Toybox.WatchUi;
 
@@ -22,7 +21,8 @@ class OrionSleepApp extends Application.AppBase {
 
     function getInitialView() {
         if (OrionAuth.hasStoredToken()) {
-            return [new StatusView(), new StatusDelegate()];
+            var view = new DeviceListView();
+            return [view, new DeviceListDelegate(view)];
         }
         var view = new ProvisioningView();
         return [view, new ProvisioningDelegate(view)];

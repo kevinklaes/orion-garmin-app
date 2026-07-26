@@ -1,6 +1,6 @@
-// Provisioning/auth UI (oga-2et) — replaces the placeholder StatusView on
-// first launch (no stored token). State machine mirrors config_flow.py's
-// async_step_user: method picker -> API key path or phone+OTP path ->
+// Provisioning/auth UI (oga-2et) — shown on first launch (no stored token),
+// hands off to DeviceListView (oga-8m6) on success. State machine mirrors
+// config_flow.py's async_step_user: method picker -> API key path or phone+OTP path ->
 // success/error, using GarminMerge's OAuthView/OAuthDelegate structure
 // (state field + onUpdate rendering per state + BehaviorDelegate for
 // retry/cancel/confirm) as the structural template.
@@ -139,7 +139,8 @@ class ProvisioningView extends WatchUi.View {
     }
 
     function finish() as Void {
-        WatchUi.switchToView(new StatusView(), new StatusDelegate(), WatchUi.SLIDE_IMMEDIATE);
+        var view = new DeviceListView();
+        WatchUi.switchToView(view, new DeviceListDelegate(view), WatchUi.SLIDE_IMMEDIATE);
     }
 
     // ── Text entry results (from ProvisioningTextDelegate) ──────────────────
