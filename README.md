@@ -6,23 +6,29 @@ on/off and set zone temperature — from a Garmin watch or Edge bike computer.
 
 ## Status
 
-Exploration + design done (oga-fsf); scaffolding only so far:
+Core app complete: provisioning (API key or phone+OTP), device list, and
+device control (power/temperature) all implemented and verified across
+both watch and Edge device families. Remaining work is 3 optional stretch
+features (away-mode toggle, sleep insights display, schedule temperature
+-offset sliders — see `bd list`) and store submission
+([docs/STORE_PUBLICATION.md](docs/STORE_PUBLICATION.md)).
 
 - `manifest.xml` / `monkey.jungle` — Device App (`type="watch-app"`) targeting
   both watch (`fenix7`, `venu3`) and Edge (`edge840`, `edge1040`) product
-  families. Verified building clean with Connect IQ SDK 9.2.0 for all four.
-- `source/OrionSleepApp.mc` + `source/StatusView.mc` — app entry point and a
-  placeholder screen only; real provisioning and device-control screens are
-  follow-up beads (`oga-` prefix — see `bd ready`/`bd list`).
+  families.
+- `source/OrionSleepApp.mc` — app entry point, routes to provisioning or
+  device list based on `OrionAuth.hasStoredToken()`.
+- `source/ProvisioningView.mc`, `source/DeviceListView.mc`,
+  `source/DeviceControlView.mc` — the three real screens.
+- `source/OrionClient.mc` — REST client against the live Orion Sleep API.
+- `source/OrionAuth.mc` — on-device token storage + refresh.
 - `resources/settings/` — `api_key` and `phone` fields (phone-side settings
   convenience; the actual OTP verification code is always entered on-device,
   never stored as a static property).
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full design: auth flow (API key
-or phone+OTP, mirroring the sibling `home_assistant_orion_integration`
-repo's `config_flow.py`), app-type reasoning, multi-device-family notes,
-on-device storage plan, and the canonical `/v1/devices/{serial}/live`
-control endpoints.
+See [docs/DESIGN.md](docs/DESIGN.md) for the full design and
+[docs/TESTING.md](docs/TESTING.md) for how to actually run and click
+through the app yourself in the simulator.
 
 ## Build
 
