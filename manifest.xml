@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Connect IQ app: control an Orion Sleep smart mattress topper (oga-fsf). -->
+<!--
+     type="watch-app" (Device App, NOT "widget"): this is a deliberately
+     launched control surface (turn the bed on/off, set temperature), used at
+     bedtime, not something that needs to be reachable mid-activity the way
+     GarminMerge's PR-review widget does (see that project's docs/TRANSPORT.md
+     for the widget-vs-app tradeoff this app does NOT need). Device Apps live
+     in the Apps menu and are explicitly launched, which matches "open the app,
+     control the bed, close it" better than the swipeable glance loop.
+
+     Targets both watch and Edge device families (multi-family). Screen
+     shapes/resolutions differ substantially between them (see compiler.json
+     per device under the installed SDK's Devices/ dir) — round ~260-454px
+     square watch faces vs. tall rectangular Edge screens — so views must lay
+     out from dc.getWidth()/getHeight() at runtime (same approach GarminMerge's
+     PRListView already uses) rather than fixed pixel coordinates. Edge devices
+     also vary in touch support; input handling should go through
+     WatchUi.BehaviorDelegate's onKey/onSelect/onTap so both button-only and
+     touch devices work without device-specific branches (again mirroring
+     GarminMerge's PRListDelegate).
+
+     Device list below is a representative starter set (2 watches + 2 Edge
+     units, spanning MIP/AMOLED display types) confirmed against the locally
+     installed Connect IQ SDK 9.2.0's compiler.json for each id — all four
+     support the "watchApp" appType this manifest declares. Expand this list
+     as needed; re-verify product ids against the current SDK's Devices/
+     directory since Garmin adds/renames devices over time.
+-->
+<iq:manifest xmlns:iq="http://www.garmin.com/xml/connectiq" version="3">
+    <iq:application
+        id="3fb8073ebdf24e40a7aa59b4b7f56888"
+        type="watch-app"
+        name="@Strings.AppName"
+        entry="OrionSleepApp"
+        launcherIcon="@Drawables.LauncherIcon"
+        minApiLevel="4.2.0">
+
+        <iq:products>
+            <!-- Watches: round (fenix7, MIP) and round (venu3, AMOLED) -->
+            <iq:product id="fenix7"/>
+            <iq:product id="venu3"/>
+            <!-- Edge bike computers: tall rectangular LCD -->
+            <iq:product id="edge840"/>
+            <iq:product id="edge1040"/>
+        </iq:products>
+
+        <iq:permissions>
+            <!-- REST calls to the Orion Sleep API via Communications.makeWebRequest -->
+            <iq:uses-permission id="Communications"/>
+        </iq:permissions>
+
+        <iq:languages>
+            <iq:language>eng</iq:language>
+        </iq:languages>
+
+        <iq:barrels/>
+    </iq:application>
+</iq:manifest>

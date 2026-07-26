@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<strings>
+    <string id="AppName">Orion Sleep</string>
+
+    <!-- Settings labels (oga bead: auth/provisioning UI reads these via
+         Application.Properties, same convention as GarminMerge's
+         github_client_id/github_token/github_owner/github_repo fields) -->
+    <string id="SettingsTitle">Orion Sleep Settings</string>
+    <string id="AuthGroupTitle">Orion Account</string>
+    <string id="AuthGroupDesc">Paste an API key, or enter your phone number to sign in with a verification code</string>
+    <string id="ApiKeyTitle">API key</string>
+    <string id="ApiKeyPrompt">Long-lived key from app.orionsleep.com/api-keys</string>
+    <string id="PhoneTitle">Phone number</string>
+    <string id="PhonePrompt">Full number with country code, e.g. 15132015808</string>
+</strings>

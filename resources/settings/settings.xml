@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+    <group id="orionAuth" title="@Strings.AuthGroupTitle" description="@Strings.AuthGroupDesc">
+        <setting propertyKey="@Properties.api_key" title="@Strings.ApiKeyTitle" prompt="@Strings.ApiKeyPrompt">
+            <settingConfig type="password" required="false" maxLength="64"/>
+        </setting>
+        <setting propertyKey="@Properties.phone" title="@Strings.PhoneTitle" prompt="@Strings.PhonePrompt">
+            <settingConfig type="alphaNumeric" required="false" maxLength="15"/>
+        </setting>
+    </group>
+</settings>

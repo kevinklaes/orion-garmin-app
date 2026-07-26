@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+    <!-- Dev defaults empty — set via Garmin Connect Mobile app settings, or
+         paste the API key here as a phone-side convenience. The OTP
+         verification code itself is never a property: it's ephemeral
+         (requested live, single use) so it's entered on-device in the
+         provisioning flow (oga bead), not stored as static config. -->
+    <property id="api_key" type="string"></property>
+    <property id="phone" type="string"></property>
+</properties>

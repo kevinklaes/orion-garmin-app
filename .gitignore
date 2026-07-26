@@ -1,0 +1,27 @@
+# Connect IQ build artifacts
+bin/
+gen/
+*.prg
+*.iq
+*.jungle.out
+export/
+
+# IDE / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.cursor/
+.settings/
+.project
+.classpath
+
+# Gas Town / polecat local (not app source)
+.beads/
+.runtime/
+CLAUDE.md
+
+# Local secrets (never commit real API keys/tokens)
+local.properties
+*.der
+developer_key*
