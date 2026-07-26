@@ -97,7 +97,7 @@ class OrionAuth {
 
     function signOut() as Void {
         OrionAuth.clearStoredToken();
-        _client = new OrionClient(method(:onClientResponse), false);
+        rebuildClientFromStorage();
         _pendingCallback = null;
         _pendingOp = "";
         _awaitingRefresh = false;
@@ -206,6 +206,13 @@ class OrionAuth {
             } else if (_pendingOp.equals("validate_api_key") && result != null) {
                 persistApiKey(_pendingApiKey as Lang.String);
             }
+        } else if (_pendingOp.equals("validate_api_key")) {
+            // validateApiKey() had to mutate the live client with the
+            // unvalidated key to send the request. Validation failed and
+            // Storage was never touched -- rehydrate the client from
+            // Storage so a failed re-authenticate attempt doesn't strand
+            // an otherwise-still-signed-in session in a broken state.
+            rebuildClientFromStorage();
         }
 
         invokePendingCallback(result, error);
@@ -220,6 +227,18 @@ class OrionAuth {
     }
 
     // ── Storage helpers ──────────────────────────────────────────────────
+
+    // Rebuilds _client from whatever's currently in Storage: after
+    // sign-out, and to roll back a failed validateApiKey() attempt that
+    // mutated the live client in-place. (initialize() inlines the same
+    // logic directly -- the compiler's definite-assignment check can't
+    // see through this helper to know _client ends up non-null.)
+    private function rebuildClientFromStorage() as Void {
+        var authMethod = Application.Storage.getValue(STORAGE_AUTH_METHOD);
+        var isApiKey = (authMethod != null && authMethod instanceof Lang.String && (authMethod as Lang.String).equals("api_key"));
+        _client = new OrionClient(method(:onClientResponse), isApiKey);
+        restoreFromStorage(authMethod);
+    }
 
     private function restoreFromStorage(authMethodValue as Lang.Object or Null) as Void {
         var token = Application.Storage.getValue(STORAGE_ACCESS_TOKEN);
