@@ -1,3 +1,20 @@
 project.manifest = manifest.xml
 base.sourcePath = source
 base.resourcePath = resources
+
+# Launcher icon must be shipped at each device's exact launcherIcon size
+# (see each device's compiler.json under the SDK's Devices/ dir) or the
+# compiler warns and scales at build time. Per-size resource folders here
+# supply an exact-size resources-icon-<N>/drawables/launcher_icon.png for
+# each device group; re-check sizes against the SDK's Devices/ dir when
+# adding new products.
+fenix7.resourcePath = $(base.resourcePath);resources-icon-40
+edge1040.resourcePath = $(base.resourcePath);resources-icon-40
+fr955.resourcePath = $(base.resourcePath);resources-icon-40
+edge840.resourcePath = $(base.resourcePath);resources-icon-35
+fenix843mm.resourcePath = $(base.resourcePath);resources-icon-60
+fenix847mm.resourcePath = $(base.resourcePath);resources-icon-65
+fr965.resourcePath = $(base.resourcePath);resources-icon-65
+fr970.resourcePath = $(base.resourcePath);resources-icon-65
+edge1050.resourcePath = $(base.resourcePath);resources-icon-68
+venu3.resourcePath = $(base.resourcePath);resources-icon-70

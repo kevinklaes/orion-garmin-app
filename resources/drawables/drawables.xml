@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Placeholder launcher icon (plain circle) — replace with real branded
-     artwork before store submission; see docs/STORE_PUBLICATION.md. -->
-<drawables>
-    <bitmap id="LauncherIcon" filename="launcher_icon.png"/>
-</drawables>

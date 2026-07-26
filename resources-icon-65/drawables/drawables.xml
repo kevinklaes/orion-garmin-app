@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Launcher icon at exact 65x65, the size this device group requires
+     (see monkey.jungle for the device->size mapping). -->
+<drawables>
+    <bitmap id="LauncherIcon" filename="launcher_icon.png"/>
+</drawables>
