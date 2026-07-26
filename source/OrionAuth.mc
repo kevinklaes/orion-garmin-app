@@ -16,8 +16,8 @@
 // ever writes to Properties.
 //
 // No Background Service: refresh happens synchronously, on-demand, right
-// before an authenticated call -- see ensureValidToken's use in
-// startAuthenticatedCall(). This mirrors api.py's ensure_valid_token() /
+// before an authenticated call -- see startAuthenticatedCall()'s
+// isTokenExpired() check. This mirrors api.py's ensure_valid_token() /
 // _token_expired(margin_seconds=60) exactly. That's a deliberate decision
 // documented in docs/DESIGN.md; don't relitigate it here.
 using Toybox.Application;
@@ -27,12 +27,12 @@ using Toybox.System;
 class OrionAuth {
 
     // Mirrors api.py's ensure_valid_token(margin_seconds=60).
-    private const TOKEN_REFRESH_MARGIN_SECONDS = 60;
+    private static const TOKEN_REFRESH_MARGIN_SECONDS = 60;
 
-    private const STORAGE_AUTH_METHOD = "orion_auth_method";
-    private const STORAGE_ACCESS_TOKEN = "orion_access_token";
-    private const STORAGE_REFRESH_TOKEN = "orion_refresh_token";
-    private const STORAGE_EXPIRES_AT = "orion_expires_at";
+    private static const STORAGE_AUTH_METHOD = "orion_auth_method";
+    private static const STORAGE_ACCESS_TOKEN = "orion_access_token";
+    private static const STORAGE_REFRESH_TOKEN = "orion_refresh_token";
+    private static const STORAGE_EXPIRES_AT = "orion_expires_at";
 
     private var _client as OrionClient;
 
@@ -76,7 +76,7 @@ class OrionAuth {
     }
 
     static function hasStoredToken() as Lang.Boolean {
-        var token = Application.Storage.getValue(STORAGE_ACCESS_TOKEN);
+        var token = Application.Storage.getValue(OrionAuth.STORAGE_ACCESS_TOKEN);
         if (token != null && token instanceof Lang.String) {
             return (token as Lang.String).length() > 0;
         }
@@ -88,10 +88,10 @@ class OrionAuth {
     // once validated lives under the same access-token key, so this is
     // sufficient for both auth methods.
     static function clearStoredToken() as Void {
-        Application.Storage.deleteValue(STORAGE_AUTH_METHOD);
-        Application.Storage.deleteValue(STORAGE_ACCESS_TOKEN);
-        Application.Storage.deleteValue(STORAGE_REFRESH_TOKEN);
-        Application.Storage.deleteValue(STORAGE_EXPIRES_AT);
+        Application.Storage.deleteValue(OrionAuth.STORAGE_AUTH_METHOD);
+        Application.Storage.deleteValue(OrionAuth.STORAGE_ACCESS_TOKEN);
+        Application.Storage.deleteValue(OrionAuth.STORAGE_REFRESH_TOKEN);
+        Application.Storage.deleteValue(OrionAuth.STORAGE_EXPIRES_AT);
         System.println("OrionAuth: cleared stored auth state");
     }
 
