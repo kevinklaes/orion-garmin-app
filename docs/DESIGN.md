@@ -189,8 +189,10 @@ Same shape as GarminMerge's `docs/STORE_PUBLICATION.md` + `PRIVACY.md`:
 `Communications` is the only permission needed (already justified —
 `makeWebRequest` to the Orion REST API); a privacy policy is required
 because the app handles account credentials (API key/OTP token) and bed
-state. Filed as its own lower-priority follow-up bead once the control UI
-exists to describe accurately.
+state. See [docs/STORE_PUBLICATION.md](STORE_PUBLICATION.md) (pre-flight
+checklist + drafted listing copy) and [PRIVACY.md](../PRIVACY.md) (privacy
+policy), drafted in oga-qiv now that the control UI (oga-8m6) is real.
+Screenshots still block on multi-device-family verification (oga-p8a).
 
 ## Implementation beads filed from this design
 
