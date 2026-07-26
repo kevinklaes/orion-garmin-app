@@ -1,0 +1,127 @@
+name: Build Connect IQ app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Keep in sync with the SDK version used for local dev builds (see
+  # docs/TESTING.md). Bump this when upgrading the locally installed SDK.
+  CIQ_SDK_VERSION: "9.2.0"
+
+jobs:
+  # Reads the product list straight out of manifest.xml so CI never drifts
+  # from what's actually declared there (see manifest.xml's <iq:products>).
+  determine-products:
+    runs-on: ubuntu-latest
+    outputs:
+      products: ${{ steps.parse.outputs.products }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        run: |
+          products=$(grep -oP '(?<=<iq:product id=")[^"]+' manifest.xml | jq -R . | jq -sc .)
+          echo "Products: $products"
+          echo "products=$products" >> "$GITHUB_OUTPUT"
+
+  build-devices:
+    needs: determine-products
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ${{ fromJson(needs.determine-products.outputs.products) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Connect IQ SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ciq-sdk
+          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
+
+      - name: Download Connect IQ SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: ${{ github.workspace }}/.github/scripts/download-sdk.sh
+        env:
+          CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
+          CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
+
+      - name: Decode developer key
+        run: echo "${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}" | base64 -d > developer_key.der
+
+      - name: Build ${{ matrix.device }}
+        run: |
+          mkdir -p bin
+          ciq-sdk/bin/monkeyc \
+            -f monkey.jungle \
+            -d ${{ matrix.device }} \
+            -o bin/OrionSleep-${{ matrix.device }}.prg \
+            -y developer_key.der \
+            -w
+
+      - name: Clean up developer key
+        if: always()
+        run: rm -f developer_key.der
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrionSleep-${{ matrix.device }}
+          path: bin/OrionSleep-${{ matrix.device }}.prg
+          retention-days: 14
+
+  build-store-package:
+    needs: determine-products
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Connect IQ SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ciq-sdk
+          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
+
+      - name: Download Connect IQ SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: ${{ github.workspace }}/.github/scripts/download-sdk.sh
+        env:
+          CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
+          CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
+
+      - name: Decode developer key
+        run: echo "${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}" | base64 -d > developer_key.der
+
+      - name: Build signed .iq store package
+        run: |
+          mkdir -p bin
+          ciq-sdk/bin/monkeyc \
+            -e -r \
+            -f monkey.jungle \
+            -o bin/OrionSleep.iq \
+            -y developer_key.der \
+            -w
+
+      - name: Clean up developer key
+        if: always()
+        run: rm -f developer_key.der
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OrionSleep-store-package
+          path: bin/OrionSleep.iq
+          retention-days: 14
