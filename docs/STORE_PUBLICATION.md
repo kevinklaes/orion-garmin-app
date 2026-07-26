@@ -86,9 +86,9 @@ pattern (see [docs/DESIGN.md](DESIGN.md#store-publication)).
 **Keywords:** smart mattress, sleep, bed control, temperature, home,
 climate, iot
 
-**Screenshots needed** (not yet captured — the control UI (oga-8m6) and
-multi-device-family verification (oga-p8a) need to land first; see
-[docs/DESIGN.md](DESIGN.md#screens)):
+**Screenshots needed** (not yet captured — blocked on multi-device-family
+verification (oga-p8a) so screens can be captured against confirmed-working
+builds; see [docs/DESIGN.md](DESIGN.md#screens)):
 - Device list view (populated with real paired beds, not empty/loading
   state)
 - Device control view showing a zone's power state and temperature
