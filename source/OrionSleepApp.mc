@@ -1,9 +1,10 @@
 // Orion Sleep — Connect IQ Device App entry point (oga-fsf).
 //
-// Scaffolding only: getInitialView() currently returns a placeholder status
-// screen. Real screens (provisioning/auth, device list, device control) are
-// implemented in follow-up beads — see docs/DESIGN.md for the full plan and
-// the file-by-file breakdown.
+// getInitialView() routes on stored-auth state: no token yet ->
+// ProvisioningView (oga-2et's method picker / API-key / phone+OTP flow);
+// already signed in -> StatusView, which remains a placeholder until device
+// list + control UI (follow-up bead) lands — see docs/DESIGN.md for the
+// full plan and the file-by-file breakdown.
 using Toybox.Application;
 using Toybox.WatchUi;
 
@@ -20,9 +21,11 @@ class OrionSleepApp extends Application.AppBase {
     }
 
     function getInitialView() {
-        var view = new StatusView();
-        var delegate = new StatusDelegate();
-        return [view, delegate];
+        if (OrionAuth.hasStoredToken()) {
+            return [new StatusView(), new StatusDelegate()];
+        }
+        var view = new ProvisioningView();
+        return [view, new ProvisioningDelegate(view)];
     }
 
     function onSettingsChanged() {
