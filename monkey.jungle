@@ -1,6 +1,11 @@
 project.manifest = manifest.xml
 base.sourcePath = source
-base.resourcePath = resources
+# Fallback default icon dir (resources-icon-40) covers the ~150 product ids
+# below that don't have an exact-size override — monkeyc auto-scales this
+# and only warns. Without any drawable at all in the active resourcePath,
+# the build hard-fails ("bitmap resource ... can't be found"), which is why
+# a default is needed here rather than leaving base.resourcePath bare.
+base.resourcePath = resources;resources-icon-40
 
 # Launcher icon must be shipped at each device's exact launcherIcon size
 # (see each device's compiler.json under the SDK's Devices/ dir) or the
