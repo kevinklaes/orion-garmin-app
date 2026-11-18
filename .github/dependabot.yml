@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Bumps the uses: tags and .github/workflows/actions.lock together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

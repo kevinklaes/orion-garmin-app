@@ -1,0 +1,10 @@
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # The shared lint workflows in lint-actions.yml are called by tag
+        # (@v1.0.0) per the kevinklaes/shared-actions README. actions.lock
+        # doesn't record reusable-workflow refs, so allow tag pins for our own
+        # repos only; every other action keeps the default hash-pin policy
+        # (satisfied by actions.lock).
+        "kevinklaes/*": ref-pin

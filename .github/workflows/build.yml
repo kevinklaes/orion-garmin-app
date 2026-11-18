@@ -6,6 +6,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions: {}
+
 env:
   # Keep in sync with the SDK version used for local dev builds (see
   # docs/TESTING.md). Bump this when upgrading the locally installed SDK.
@@ -16,10 +18,14 @@ jobs:
   # from what's actually declared there (see manifest.xml's <iq:products>).
   determine-products:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       products: ${{ steps.parse.outputs.products }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - id: parse
         run: |
           products=$(grep -oP '(?<=<iq:product id=")[^"]+' manifest.xml | jq -R . | jq -sc .)
@@ -29,42 +35,50 @@ jobs:
   build-devices:
     needs: determine-products
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         device: ${{ fromJson(needs.determine-products.outputs.products) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6.3.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Cache Connect IQ SDK
         id: sdk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: ciq-sdk
           key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
 
       - name: Download Connect IQ SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: ${{ github.workspace }}/.github/scripts/download-sdk.sh
+        run: "$GITHUB_WORKSPACE/.github/scripts/download-sdk.sh"
         env:
           CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
           CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
 
       - name: Decode developer key
-        run: echo "${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}" | base64 -d > developer_key.der
+        env:
+          GARMIN_DEVELOPER_KEY_BASE64: ${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}
+        run: echo "$GARMIN_DEVELOPER_KEY_BASE64" | base64 -d > developer_key.der
 
       - name: Build ${{ matrix.device }}
+        env:
+          DEVICE: ${{ matrix.device }}
         run: |
           mkdir -p bin
           ciq-sdk/bin/monkeyc \
             -f monkey.jungle \
-            -d ${{ matrix.device }} \
-            -o bin/OrionSleep-${{ matrix.device }}.prg \
+            -d "$DEVICE" \
+            -o "bin/OrionSleep-$DEVICE.prg" \
             -y developer_key.der \
             -w
 
@@ -72,7 +86,7 @@ jobs:
         if: always()
         run: rm -f developer_key.der
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: OrionSleep-${{ matrix.device }}
           path: bin/OrionSleep-${{ matrix.device }}.prg
@@ -81,30 +95,36 @@ jobs:
   build-store-package:
     needs: determine-products
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6.3.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Cache Connect IQ SDK
         id: sdk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: ciq-sdk
           key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
 
       - name: Download Connect IQ SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: ${{ github.workspace }}/.github/scripts/download-sdk.sh
+        run: "$GITHUB_WORKSPACE/.github/scripts/download-sdk.sh"
         env:
           CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
           CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
 
       - name: Decode developer key
-        run: echo "${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}" | base64 -d > developer_key.der
+        env:
+          GARMIN_DEVELOPER_KEY_BASE64: ${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}
+        run: echo "$GARMIN_DEVELOPER_KEY_BASE64" | base64 -d > developer_key.der
 
       - name: Build signed .iq store package
         run: |
@@ -120,7 +140,7 @@ jobs:
         if: always()
         run: rm -f developer_key.der
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: OrionSleep-store-package
           path: bin/OrionSleep.iq

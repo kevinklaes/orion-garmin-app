@@ -1,0 +1,19 @@
+name: Lint actions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  zizmor:
+    uses: kevinklaes/shared-actions/.github/workflows/action-security-check.yml@v1.0.0
+    permissions:
+      contents: read
+
+  actions-lock:
+    uses: kevinklaes/shared-actions/.github/workflows/actions-lock-check.yml@v1.0.0
+    permissions:
+      contents: read
