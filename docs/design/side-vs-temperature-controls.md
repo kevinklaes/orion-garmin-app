@@ -244,8 +244,8 @@ input + a draw addition, isolated to `DeviceControlView.mc`.
 
 **Prototype (single follow-up bead):** implement model A+E behind the existing
 `isTouchScreen`/`screenShape` branches in `DeviceControlView.mc`. Verify in the
-CIQ simulator across the three input classes using devices already in the CI
-build matrix:
+CIQ simulator across the three input classes using devices already in
+manifest.xml:
 
 - Touch round small: `fr165` / `venu3s` — confirm pill tap flips side, no swipe
   crossover.
