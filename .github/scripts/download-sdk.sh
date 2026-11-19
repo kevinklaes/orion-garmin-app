@@ -1,52 +1,75 @@
 #!/usr/bin/env bash
 # Downloads and extracts the Connect IQ SDK into ./ciq-sdk for CI builds.
 #
-# Garmin doesn't publish a stable, documented API for this -- the SDK
-# Manager desktop app resolves download URLs from an internal manifest
-# whose schema isn't guaranteed. Two ways to point this script at a build:
+# The SDK itself needs no Garmin login. Its download URL is resolved from
+# the same public manifest the SDK Manager uses:
 #
-#   1. (Preferred, reliable) Set the repo variable CIQ_SDK_URL to a direct
-#      .zip download link for CIQ_SDK_VERSION's Linux SDK build. Get this
-#      once by installing the SDK Manager locally, downloading the target
-#      version, and checking its own download logs/cache for the URL it
-#      used (or inspect network traffic while it downloads).
-#   2. (Fallback, unverified) This script tries Garmin's SDK Manager
-#      manifest at the URL below and greps out a matching entry. This has
-#      NOT been validated against GitHub's runners -- if it fails, the
-#      error message below tells you to set CIQ_SDK_URL instead.
+#   https://developer.garmin.com/downloads/connect-iq/sdks/sdks.json
+#
+# Each entry looks like {"version": "9.2.0", "linux": "connectiq-sdk-lin-
+# 9.2.0-<date>-<hash>.zip", ...}; the zip lives next to the manifest under
+# .../connect-iq/sdks/<filename>. Setting the repo variable CIQ_SDK_URL to a
+# direct .zip link skips the manifest lookup entirely.
+#
+# Note the SDK zip does NOT include device definitions -- see
+# download-devices.sh for those.
 set -euo pipefail
+
+: "${CIQ_SDK_VERSION:?CIQ_SDK_VERSION must be set}"
+
+sdks_base="https://developer.garmin.com/downloads/connect-iq/sdks"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p ciq-sdk
 
 if [ -n "${CIQ_SDK_URL:-}" ]; then
   url="$CIQ_SDK_URL"
 else
-  echo "CIQ_SDK_URL not set -- attempting to resolve version $CIQ_SDK_VERSION from Garmin's SDK manifest (unverified path, see script comments)."
-  curl -sL "https://developer.garmin.com/downloads/connect-iq/sdk-manager/sdks.json" -o /tmp/sdks.json
-  url=$(jq -r --arg v "$CIQ_SDK_VERSION" \
-    '.[] | select(.version == $v and (.platform // "" | test("linux"; "i"))) | .url' \
-    /tmp/sdks.json | head -1)
-fi
-
-if [ -z "${url:-}" ] || [ "$url" = "null" ]; then
-  echo "ERROR: could not resolve a Connect IQ SDK $CIQ_SDK_VERSION download URL." >&2
-  echo "Set the repo variable CIQ_SDK_URL to a direct .zip link (Settings -> Secrets and variables -> Actions -> Variables)." >&2
-  exit 1
+  echo "Resolving Connect IQ SDK $CIQ_SDK_VERSION from $sdks_base/sdks.json"
+  if ! curl -fsSL "$sdks_base/sdks.json" -o "$tmp/sdks.json"; then
+    echo "ERROR: could not fetch $sdks_base/sdks.json." >&2
+    exit 1
+  fi
+  if ! jq -e 'type == "array"' "$tmp/sdks.json" >/dev/null 2>&1; then
+    echo "ERROR: $sdks_base/sdks.json is not a JSON array -- Garmin may have moved it. First 200 bytes:" >&2
+    head -c 200 "$tmp/sdks.json" >&2
+    echo >&2
+    echo "Set the repo variable CIQ_SDK_URL to a direct .zip link to bypass the manifest." >&2
+    exit 1
+  fi
+  file=$(jq -r --arg v "$CIQ_SDK_VERSION" \
+    'first(.[] | select(.version == $v) | .linux // empty)' "$tmp/sdks.json")
+  if [ -z "$file" ]; then
+    echo "ERROR: no Linux build of Connect IQ SDK $CIQ_SDK_VERSION in $sdks_base/sdks.json." >&2
+    echo "Available versions: $(jq -r '[.[].version] | join(", ")' "$tmp/sdks.json")" >&2
+    exit 1
+  fi
+  url="$sdks_base/$file"
 fi
 
 echo "Downloading SDK from: $url"
-curl -sL "$url" -o /tmp/ciq-sdk.zip
-unzip -q /tmp/ciq-sdk.zip -d ciq-sdk
-rm -f /tmp/ciq-sdk.zip
+curl -fsSL "$url" -o "$tmp/ciq-sdk.zip"
+if ! unzip -tq "$tmp/ciq-sdk.zip" >/dev/null; then
+  echo "ERROR: $url did not return a valid zip." >&2
+  exit 1
+fi
+unzip -q "$tmp/ciq-sdk.zip" -d ciq-sdk
 
-# The zip typically contains a single versioned top-level folder
-# (e.g. connectiq-sdk-lin-9.2.0-<hash>/) -- flatten it so ciq-sdk/bin/
-# is always the path callers use, regardless of that folder's exact name.
-inner=$(find ciq-sdk -mindepth 1 -maxdepth 1 -type d | head -1)
-if [ -n "$inner" ] && [ ! -d ciq-sdk/bin ]; then
-  mv "$inner"/* ciq-sdk/
-  rmdir "$inner"
+# Current SDK zips put bin/ at the root, but older ones wrapped everything in
+# a single versioned folder (e.g. connectiq-sdk-lin-9.2.0-<hash>/) -- flatten
+# that so ciq-sdk/bin/ is always the path callers use.
+if [ ! -d ciq-sdk/bin ]; then
+  inner=$(find ciq-sdk -mindepth 1 -maxdepth 1 -type d | head -1)
+  if [ -n "$inner" ]; then
+    mv "$inner"/* ciq-sdk/
+    rmdir "$inner"
+  fi
 fi
 
 chmod +x ciq-sdk/bin/monkeyc ciq-sdk/bin/monkeydo 2>/dev/null || true
-echo "SDK ready at ciq-sdk/"
+if [ ! -f ciq-sdk/bin/monkeyc ]; then
+  echo "ERROR: ciq-sdk/bin/monkeyc missing after extracting $url." >&2
+  exit 1
+fi
+echo "SDK ready at ciq-sdk/ ($(cat ciq-sdk/bin/version.txt 2>/dev/null || echo unknown version))"

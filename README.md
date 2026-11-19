@@ -46,6 +46,24 @@ monkeyc \
 Or use the Monkey C VS Code extension: **Build for Device** → pick a target
 from `manifest.xml`'s `<iq:products>`.
 
+### CI
+
+`.github/workflows/build.yml` compiles every product in `manifest.xml` plus
+the store `.iq` package. The SDK downloads without a login, but Garmin only
+serves device definitions to a signed-in account, so the repo needs these
+under **Settings → Secrets and variables → Actions**:
+
+| Kind | Name | Value |
+|------|------|-------|
+| Secret | `GARMIN_USERNAME` | Garmin account email (no MFA on the account) |
+| Secret | `GARMIN_PASSWORD` | Its password |
+| Variable | `CIQ_AGREEMENT_HASH` | The `Current Hash` printed by [`connect-iq-sdk-manager agreement view`](https://github.com/lindell/connect-iq-sdk-manager-cli) after you read the SDK agreement |
+| Secret (optional) | `GARMIN_DEVELOPER_KEY_BASE64` | `base64 -i developer_key.der`. Without it CI signs with a throwaway key, so its artifacts aren't publishable |
+
+The SDK and devices are cached per SDK version and `manifest.xml` hash, so
+the login runs only when one of those changes. Details are in
+`.github/scripts/download-devices.sh`.
+
 ## Project layout
 
 ```

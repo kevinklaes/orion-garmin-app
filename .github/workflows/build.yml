@@ -32,8 +32,45 @@ jobs:
           echo "Products: $products"
           echo "products=$products" >> "$GITHUB_OUTPUT"
 
+  # Fetches the SDK and the manifest's device definitions once and caches
+  # them, so the 75-way device matrix below never hits Garmin (or logs in)
+  # itself. The cache key includes manifest.xml, so adding a product
+  # refreshes the device set.
+  prepare-sdk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache Connect IQ SDK and devices
+        id: sdk-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ciq-sdk
+            ~/.Garmin/ConnectIQ/Devices
+          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux-${{ hashFiles('manifest.xml') }}
+
+      - name: Download Connect IQ SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: .github/scripts/download-sdk.sh
+        env:
+          CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
+          CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
+
+      - name: Download Connect IQ devices
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: .github/scripts/download-devices.sh
+        env:
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          CIQ_AGREEMENT_HASH: ${{ vars.CIQ_AGREEMENT_HASH }}
+
   build-devices:
-    needs: determine-products
+    needs: [determine-products, prepare-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,24 +88,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Cache Connect IQ SDK
-        id: sdk-cache
-        uses: actions/cache@v6.1.0
+      - name: Restore Connect IQ SDK and devices
+        uses: actions/cache/restore@v6.1.0
         with:
-          path: ciq-sdk
-          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
-
-      - name: Download Connect IQ SDK
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: "$GITHUB_WORKSPACE/.github/scripts/download-sdk.sh"
-        env:
-          CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
-          CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
+          path: |
+            ciq-sdk
+            ~/.Garmin/ConnectIQ/Devices
+          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux-${{ hashFiles('manifest.xml') }}
+          fail-on-cache-miss: true
 
       - name: Decode developer key
         env:
           GARMIN_DEVELOPER_KEY_BASE64: ${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}
-        run: echo "$GARMIN_DEVELOPER_KEY_BASE64" | base64 -d > developer_key.der
+        run: .github/scripts/developer-key.sh
 
       - name: Build ${{ matrix.device }}
         env:
@@ -93,7 +125,7 @@ jobs:
           retention-days: 14
 
   build-store-package:
-    needs: determine-products
+    needs: prepare-sdk
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -107,24 +139,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Cache Connect IQ SDK
-        id: sdk-cache
-        uses: actions/cache@v6.1.0
+      - name: Restore Connect IQ SDK and devices
+        uses: actions/cache/restore@v6.1.0
         with:
-          path: ciq-sdk
-          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux
-
-      - name: Download Connect IQ SDK
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: "$GITHUB_WORKSPACE/.github/scripts/download-sdk.sh"
-        env:
-          CIQ_SDK_VERSION: ${{ env.CIQ_SDK_VERSION }}
-          CIQ_SDK_URL: ${{ vars.CIQ_SDK_URL }}
+          path: |
+            ciq-sdk
+            ~/.Garmin/ConnectIQ/Devices
+          key: ciq-sdk-${{ env.CIQ_SDK_VERSION }}-linux-${{ hashFiles('manifest.xml') }}
+          fail-on-cache-miss: true
 
       - name: Decode developer key
         env:
           GARMIN_DEVELOPER_KEY_BASE64: ${{ secrets.GARMIN_DEVELOPER_KEY_BASE64 }}
-        run: echo "$GARMIN_DEVELOPER_KEY_BASE64" | base64 -d > developer_key.der
+        run: .github/scripts/developer-key.sh
 
       - name: Build signed .iq store package
         run: |
