@@ -9,13 +9,13 @@ the implementation beads filed from it.
 
 - **Orion Sleep API contract**: `home_assistant_orion_integration` repo
   (`git@github.com:kevinklaes/home-assistant-orion-integration.git`, local
-  checkout `~/Sites/home_assistant_orion_integration/mayor/rig`) —
+  checkout `~/Projects/Sites/projects/home-assistant-orion-integration`) —
   `openapi.yaml` (full surface), `custom_components/orion_sleep/config_flow.py`
   (real dual-auth flow), `custom_components/orion_sleep/api.py` (real HTTP
   client, request/response shapes, error handling).
 - **Connect IQ project-structure precedent**: `GarminMerge` repo
   (`git@github.com:kevinklaes/GarminMerge.git`, local checkout
-  `~/Sites/GarminMerge/mayor/rig`) — a real, shipping, store-track Connect IQ
+  `~/Projects/Sites/projects/garmin-merge`) — a real, shipping, store-track Connect IQ
   project by the same author. `manifest.xml`/`monkey.jungle`,
   `docs/TRANSPORT.md`, `docs/STORE_PUBLICATION.md`, `PRIVACY.md`, and the
   `source/` file layout (App entry, REST client, auth view, model, list/
