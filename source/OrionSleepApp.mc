@@ -9,6 +9,7 @@
 using Toybox.Application;
 using Toybox.WatchUi;
 
+(:glance, :background)
 class OrionSleepApp extends Application.AppBase {
 
     function initialize() {

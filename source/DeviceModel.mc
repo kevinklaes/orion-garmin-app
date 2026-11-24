@@ -149,12 +149,13 @@ module DeviceModel {
     // use Toybox.Lang and Toybox.Application only, so the glance and a
     // background service can call them (oga-6bf).
 
-    const PRIMARY_SIDE_PROPERTY = "primary_side";
-    const ZONE_A_ID = "zone_a";
-    const ZONE_B_ID = "zone_b";
+    (:glance) const PRIMARY_SIDE_PROPERTY = "primary_side";
+    (:glance) const ZONE_A_ID = "zone_a";
+    (:glance) const ZONE_B_ID = "zone_b";
 
     // The zone id of the user's primary side. Reads the setting on every
     // call (no caching) and never throws: anything unexpected means side A.
+    (:glance)
     function primaryZoneId() as Lang.String {
         var value = null;
         try {
@@ -167,6 +168,7 @@ module DeviceModel {
 
     // Pure mapping from the stored setting value to a zone id. Only the
     // number 1 means side B.
+    (:glance)
     function zoneIdForSide(value as Lang.Object or Null) as Lang.String {
         if (value != null && value instanceof Lang.Number && (value as Lang.Number) == 1) {
             return ZONE_B_ID;
@@ -191,6 +193,15 @@ module DeviceModel {
         return 0;
     }
 
+    // GlanceCache zone entries for these zones, in the same order.
+    function glanceEntries(zones as Lang.Array<OrionZone>) as Lang.Array {
+        var out = [] as Lang.Array;
+        for (var i = 0; i < zones.size(); i += 1) {
+            out.add(GlanceCache.zoneEntry(zones[i].id, zones[i].on, zones[i].temp));
+        }
+        return out;
+    }
+
     function stringOrNull(value as Lang.Object or Null) as Lang.String or Null {
         if (value != null && value instanceof Lang.String) {
             return value as Lang.String;
@@ -203,6 +214,12 @@ module DeviceModel {
         return s != null ? s : fallback;
     }
 
+    (:glance)
+    function tempText(temp as Lang.Float) as Lang.String {
+        return temp.format("%.1f") + "°";
+    }
+
+    (:background)
     function floatOrDefault(value as Lang.Object or Null, fallback as Lang.Float) as Lang.Float {
         if (value != null && value instanceof Lang.Float) {
             return value as Lang.Float;

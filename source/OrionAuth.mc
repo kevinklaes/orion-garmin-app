@@ -15,24 +15,21 @@
 // convenience values and is read-only from device code -- nothing here
 // ever writes to Properties.
 //
-// No Background Service: refresh happens synchronously, on-demand, right
-// before an authenticated call -- see startAuthenticatedCall()'s
-// isTokenExpired() check. This mirrors api.py's ensure_valid_token() /
-// _token_expired(margin_seconds=60) exactly. That's a deliberate decision
-// documented in docs/DESIGN.md; don't relitigate it here.
+// Refresh in the app happens on demand, right before an authenticated
+// call -- see startAuthenticatedCall(). This mirrors api.py's
+// ensure_valid_token() / _token_expired(margin_seconds=60).
+//
+// The app is not the only one that refreshes. The glance's background
+// refresh (GlanceRefresh.mc, oga-6bf) can refresh the same session while a
+// view is open, and each view owns its own OrionAuth. So the tokens in
+// Storage are the truth: startAuthenticatedCall() reloads them before it
+// checks expiry. The Storage keys and the token-saving rule live in
+// OrionSession, shared with the background.
 using Toybox.Application;
 using Toybox.Lang;
 using Toybox.System;
 
 class OrionAuth {
-
-    // Mirrors api.py's ensure_valid_token(margin_seconds=60).
-    private static const TOKEN_REFRESH_MARGIN_SECONDS = 60;
-
-    private static const STORAGE_AUTH_METHOD = "orion_auth_method";
-    private static const STORAGE_ACCESS_TOKEN = "orion_access_token";
-    private static const STORAGE_REFRESH_TOKEN = "orion_refresh_token";
-    private static const STORAGE_EXPIRES_AT = "orion_expires_at";
 
     private var _client as OrionClient;
 
@@ -54,7 +51,7 @@ class OrionAuth {
         _pendingApiKey = null;
         _awaitingRefresh = false;
 
-        var authMethod = Application.Storage.getValue(STORAGE_AUTH_METHOD);
+        var authMethod = Application.Storage.getValue(OrionSession.KEY_AUTH_METHOD);
         var isApiKey = (authMethod != null && authMethod instanceof Lang.String && (authMethod as Lang.String).equals("api_key"));
         _client = new OrionClient(method(:onClientResponse), isApiKey);
         restoreFromStorage(authMethod);
@@ -76,11 +73,7 @@ class OrionAuth {
     }
 
     static function hasStoredToken() as Lang.Boolean {
-        var token = Application.Storage.getValue(OrionAuth.STORAGE_ACCESS_TOKEN);
-        if (token != null && token instanceof Lang.String) {
-            return (token as Lang.String).length() > 0;
-        }
-        return false;
+        return OrionSession.hasStoredToken();
     }
 
     // Mirrors GitHubOAuth.clearStoredToken(). Clears ALL Storage auth
@@ -88,10 +81,12 @@ class OrionAuth {
     // once validated lives under the same access-token key, so this is
     // sufficient for both auth methods.
     static function clearStoredToken() as Void {
-        Application.Storage.deleteValue(OrionAuth.STORAGE_AUTH_METHOD);
-        Application.Storage.deleteValue(OrionAuth.STORAGE_ACCESS_TOKEN);
-        Application.Storage.deleteValue(OrionAuth.STORAGE_REFRESH_TOKEN);
-        Application.Storage.deleteValue(OrionAuth.STORAGE_EXPIRES_AT);
+        Application.Storage.deleteValue(OrionSession.KEY_AUTH_METHOD);
+        Application.Storage.deleteValue(OrionSession.KEY_ACCESS_TOKEN);
+        Application.Storage.deleteValue(OrionSession.KEY_REFRESH_TOKEN);
+        Application.Storage.deleteValue(OrionSession.KEY_EXPIRES_AT);
+        // The glance's saved bed state is the signed-in user's data.
+        GlanceCache.clear();
         System.println("OrionAuth: cleared stored auth state");
     }
 
@@ -136,7 +131,7 @@ class OrionAuth {
 
     // ── Authenticated calls (ensure_valid_token()-equivalent) ───────────
     // Each of these refreshes synchronously first if the token is expired
-    // (or near-expiry, per TOKEN_REFRESH_MARGIN_SECONDS) before dispatching
+    // (or near-expiry, per OrionSession.REFRESH_MARGIN_SECONDS) before dispatching
     // the real request -- a no-op check for API-key auth, which never
     // expires client-side (a revoked key just 401s on the real call).
 
@@ -162,7 +157,8 @@ class OrionAuth {
     private function startAuthenticatedCall(op as Lang.String, callback as Lang.Method) as Void {
         _pendingOp = op;
         _pendingCallback = callback;
-        if (_client.isTokenExpired(TOKEN_REFRESH_MARGIN_SECONDS)) {
+        reloadOtpTokens();
+        if (_client.isTokenExpired(OrionSession.REFRESH_MARGIN_SECONDS)) {
             System.println("OrionAuth: token expired/near-expiry, refreshing before " + op);
             _awaitingRefresh = true;
             _client.refreshTokens();
@@ -234,14 +230,14 @@ class OrionAuth {
     // logic directly -- the compiler's definite-assignment check can't
     // see through this helper to know _client ends up non-null.)
     private function rebuildClientFromStorage() as Void {
-        var authMethod = Application.Storage.getValue(STORAGE_AUTH_METHOD);
+        var authMethod = Application.Storage.getValue(OrionSession.KEY_AUTH_METHOD);
         var isApiKey = (authMethod != null && authMethod instanceof Lang.String && (authMethod as Lang.String).equals("api_key"));
         _client = new OrionClient(method(:onClientResponse), isApiKey);
         restoreFromStorage(authMethod);
     }
 
     private function restoreFromStorage(authMethodValue as Lang.Object or Null) as Void {
-        var token = Application.Storage.getValue(STORAGE_ACCESS_TOKEN);
+        var token = Application.Storage.getValue(OrionSession.KEY_ACCESS_TOKEN);
         if (token == null || !(token instanceof Lang.String) || (token as Lang.String).length() == 0) {
             return;
         }
@@ -252,14 +248,36 @@ class OrionAuth {
             return;
         }
 
-        var refreshToken = Application.Storage.getValue(STORAGE_REFRESH_TOKEN);
-        var expiresAt = Application.Storage.getValue(STORAGE_EXPIRES_AT);
+        var refreshToken = Application.Storage.getValue(OrionSession.KEY_REFRESH_TOKEN);
+        var expiresAt = Application.Storage.getValue(OrionSession.KEY_EXPIRES_AT);
         _client.setTokens(
             token as Lang.String,
             (refreshToken != null && refreshToken instanceof Lang.String) ? refreshToken as Lang.String : "",
             (expiresAt != null && expiresAt instanceof Lang.Number) ? expiresAt as Lang.Number : 0
         );
         System.println("OrionAuth: restored OTP session from Storage");
+    }
+
+    // The background refresh (GlanceRefresh.mc), or another OrionAuth in
+    // this app, may have refreshed the session since this object read it.
+    // Take the tokens from Storage before every authenticated call, so the
+    // expiry check and any refresh use the current ones. API keys do not
+    // change.
+    private function reloadOtpTokens() as Void {
+        if (_client.isApiKeyAuth()) {
+            return;
+        }
+        var token = Application.Storage.getValue(OrionSession.KEY_ACCESS_TOKEN);
+        if (token == null || !(token instanceof Lang.String) || (token as Lang.String).length() == 0) {
+            return;
+        }
+        var refreshToken = Application.Storage.getValue(OrionSession.KEY_REFRESH_TOKEN);
+        var expiresAt = Application.Storage.getValue(OrionSession.KEY_EXPIRES_AT);
+        _client.setTokens(
+            token as Lang.String,
+            (refreshToken != null && refreshToken instanceof Lang.String) ? refreshToken as Lang.String : "",
+            (expiresAt != null && expiresAt instanceof Lang.Number) ? expiresAt as Lang.Number : 0
+        );
     }
 
     private function persistTokens(tokens as Lang.Dictionary) as Void {
@@ -275,18 +293,15 @@ class OrionAuth {
 
         _client.setTokens(accessToken as Lang.String, refreshTokenStr, expiresAtNum);
 
-        Application.Storage.setValue(STORAGE_AUTH_METHOD, "otp");
-        Application.Storage.setValue(STORAGE_ACCESS_TOKEN, accessToken as Lang.String);
-        Application.Storage.setValue(STORAGE_REFRESH_TOKEN, refreshTokenStr);
-        Application.Storage.setValue(STORAGE_EXPIRES_AT, expiresAtNum);
+        OrionSession.saveOtpTokens(accessToken as Lang.String, refreshTokenStr, expiresAtNum);
         System.println("OrionAuth: persisted OTP session tokens");
     }
 
     private function persistApiKey(apiKey as Lang.String) as Void {
-        Application.Storage.setValue(STORAGE_AUTH_METHOD, "api_key");
-        Application.Storage.setValue(STORAGE_ACCESS_TOKEN, apiKey);
-        Application.Storage.deleteValue(STORAGE_REFRESH_TOKEN);
-        Application.Storage.deleteValue(STORAGE_EXPIRES_AT);
+        Application.Storage.setValue(OrionSession.KEY_AUTH_METHOD, "api_key");
+        Application.Storage.setValue(OrionSession.KEY_ACCESS_TOKEN, apiKey);
+        Application.Storage.deleteValue(OrionSession.KEY_REFRESH_TOKEN);
+        Application.Storage.deleteValue(OrionSession.KEY_EXPIRES_AT);
         System.println("OrionAuth: persisted API key");
     }
 }

@@ -128,6 +128,10 @@
         <iq:permissions>
             <!-- REST calls to the Orion Sleep API via Communications.makeWebRequest -->
             <iq:uses-permission id="Communications"/>
+            <!-- Background service (source/GlanceRefresh.mc): every 30 minutes
+                 it fetches the bed's on/off state and set temperature so the
+                 glance is current without opening the app (oga-6bf) -->
+            <iq:uses-permission id="Background"/>
         </iq:permissions>
 
         <iq:languages>
