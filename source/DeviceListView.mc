@@ -204,6 +204,8 @@ class DeviceListView extends WatchUi.View {
                     }
                 }
                 _liveOn[idx] = anyOn;
+                // Writes only when this row is the glance bed.
+                GlanceCache.write(_devices[idx].serialNumber, DeviceModel.glanceEntries(zones), null);
             } else {
                 _liveOn[idx] = null;
             }
