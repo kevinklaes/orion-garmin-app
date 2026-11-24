@@ -27,7 +27,7 @@ module PrimarySideTest {
 
     function newControlView() as DeviceControlView {
         var ids = ["zone_a", "zone_b"] as Lang.Array<Lang.String>;
-        return new DeviceControlView(new OrionDevice("id", "SN", "Bed", "", 10.0, 45.0, ids));
+        return new DeviceControlView(new OrionBackend(new OrionDevice("id", "SN", "Bed", "", 10.0, 45.0, ids)));
     }
 
     function focusedId(view as DeviceControlView) as Lang.String {
