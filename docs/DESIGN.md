@@ -112,6 +112,27 @@ The on-device provisioning view (follow-up bead) is the authoritative code
 path that calls the API; the phone-side settings fields are an optional
 prefill/shortcut, not a separate implementation.
 
+## Primary side setting
+
+A bed has two zones, A and B, and each sleeper usually only cares about their
+own. The `primary_side` setting picks the zone the control view opens on.
+
+- **Where it lives**: `Application.Properties` as `primary_side`
+  (`resources/settings/properties.xml`). `0` = side A (`zone_a`), `1` = side B
+  (`zone_b`); the default is `0`. Any other value counts as A.
+- **Who writes it**: the user, in the app's settings in Garmin Connect. The
+  app never writes it (it is a property, not `Application.Storage`).
+- **Who reads it**: only `DeviceModel.primaryZoneId()`. No other file reads
+  the property key. `DeviceModel.primaryZoneIndex()` maps the id to an index
+  in the bed's zone list and falls back to the first zone when the primary
+  zone is missing (a single-zone bed, unknown zone ids).
+- **When it applies**: the control view focuses the primary zone once per
+  open, on its first successful load. After that a refresh or a temperature
+  change keeps whatever zone the user switched to, and a changed setting takes
+  effect on the next open.
+- **Reuse**: the helper uses only `Lang` and `Application`, so the glance
+  feature (oga-6bf) can call the same helper to show the primary side.
+
 ## Token refresh vs. Background Service
 
 `api.py`'s `ensure_valid_token()` is called before every authenticated

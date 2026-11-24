@@ -1,10 +1,11 @@
 # Testing the app yourself
 
-There's no automated test suite for this project (Connect IQ apps aren't
-easily unit-testable the way a typical backend service is) — verification
-is manual, via the Connect IQ simulator or a real device. This doc didn't
-exist before; the README's "Build" section only shows a raw `monkeyc`
-compile command, not how to actually run and click through the app.
+A small unit-test suite (`source/PrimarySideTest.mc`) covers the primary
+side logic (see [Unit tests](#unit-tests)). Everything else is still
+verified manually, via the Connect IQ simulator or a real device (Connect IQ
+apps aren't easily unit-testable the way a typical backend service is). The
+README's "Build" section only shows a raw `monkeyc` compile command, not how
+to actually run and click through the app; this doc covers that.
 
 ## What you need
 
@@ -47,6 +48,28 @@ you get a stale/blank simulator window or it doesn't seem to pick up a
 fresh build, check whether another `monkeydo`/simulator process is already
 running and holding that instance, and kill it before retrying.
 
+## Unit tests
+
+The tests are Connect IQ `(:test)` functions, built into a separate test
+binary and run in the simulator:
+
+```bash
+SDK="$(cat "$HOME/Library/Application Support/Garmin/ConnectIQ/current-sdk.cfg")bin"
+"$SDK/monkeyc" -f monkey.jungle -d fenix7 -o bin/OrionSleep-test.prg -y /path/to/developer_key.der -w --unit-test
+pgrep -f "ConnectIQ.app/Contents/MacOS/simulator" || "$SDK/connectiq" &
+# wait about 10 seconds for the simulator to start
+perl -e 'alarm 150; exec @ARGV' "$SDK/monkeydo" bin/OrionSleep-test.prg fenix7 -t
+```
+
+A passing run ends with `PASSED (passed=9, failed=0, errors=0)`. **Read the
+result from that last output line, not from the exit code**: `monkeydo -t`
+has been seen to exit 1 for passing and failing runs alike. The `perl alarm`
+wrapper stops a hung run after 150 seconds.
+
+The tests never write a property, so the side they expect comes from
+whatever `primary_side` the simulator currently has; they pass with either
+value.
+
 ## What to actually click through
 
 1. **Provisioning** (`ProvisioningView.mc`, oga-2et) — method picker (API
@@ -78,6 +101,17 @@ running and holding that instance, and kill it before retrying.
    (`fenix7` or `venu3`, round screen, 5-button input) and an Edge target
    (`edge840`/`edge1040`, tall rectangular screen, button-only input, no
    touch) to confirm nothing clips or assumes touch input.
+5. **Primary side** (`primary_side` setting) — change the setting in the
+   simulator's App Settings Editor for the running app (on a real watch,
+   in the app's settings in Garmin Connect). Needs a bed with two zones.
+   - Set it to `1`, then open the bed: expect "Zone B" with the second page
+     dot lit, both from the device list and from the single-device
+     auto-select.
+   - Still on `1`, switch to Zone A, refresh with START, then change the
+     temperature: the focus stays on Zone A.
+   - Set it back to `0` (or clear it): expect "Zone A" on the next open.
+   - Change the setting while on the device list, then open the bed: it
+     opens on the new side.
 
 ## Known gaps (not bugs, just not built yet)
 
