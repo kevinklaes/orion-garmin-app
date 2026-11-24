@@ -6,15 +6,30 @@
 // has more than one zone — swipe left/right or the page keys switch which
 // zone is focused. Mirrors GarminMerge's PRDetailView structure (view +
 // delegate + confirmation/menu delegates in one file).
+//
+// Temperature batching (oga-23f): a press only changes the number on screen
+// and restarts a one-shot timer. One PUT carrying the final temperature goes
+// out QUIET_PERIOD_MS after the last press. Switching zone, a power tap, Back
+// and onHide() end the wait early and send at once. For each zone the view
+// keeps the shown values (the OrionZone in _zones) and the confirmed values
+// (the last on/temp the server reported, in _confirmed by zone id); a zone is
+// sent when the two differ. A failed send puts the confirmed value back on
+// screen unless the user changed it again during the send. Only one request
+// (PUT or GET) is handed to OrionAuth at a time; sendNextIfIdle() is the only
+// sender of updates. START/LAP refresh is ignored while a change is waiting
+// or a request is in flight.
 using Toybox.Graphics;
 using Toybox.Lang;
 using Toybox.System;
+using Toybox.Timer;
 using Toybox.WatchUi;
 
 class DeviceControlView extends WatchUi.View {
 
     // Mirrors climate.py's _attr_target_temperature_step.
     private const TEMP_STEP = 0.5;
+    // How long after the last temperature press the batch is sent.
+    private const QUIET_PERIOD_MS = 1000;
 
     private var _device as OrionDevice;
     private var _auth as OrionAuth;
@@ -24,14 +39,22 @@ class DeviceControlView extends WatchUi.View {
     // returns zones, so a refresh never moves the user off the side they chose.
     private var _primaryApplied as Lang.Boolean;
     private var _loading as Lang.Boolean;
-    private var _busy as Lang.Boolean;
     private var _error as Lang.String or Null;
     private var _status as Lang.String;
-    // Held across an in-flight update so onUpdateDone() can roll back the
-    // optimistic local mutation if the PUT fails.
-    private var _pendingRevertOn as Lang.Boolean;
-    private var _pendingRevertTemp as Lang.Float;
-    private var _pendingZoneId as Lang.String;
+    // The one timer. Started one-shot by a temperature press, stopped by a
+    // flush.
+    private var _timer as Timer.Timer;
+    // Zone whose temperature batch is still waiting for the timer, or null.
+    private var _quietZoneId as Lang.String or Null;
+    // Last on/temp the server reported, by zone id. Separate objects from the
+    // ones in _zones, which hold the values shown on screen.
+    private var _confirmed as Lang.Dictionary<Lang.String, OrionZone>;
+    // True from handing any request (PUT or GET) to _auth until its callback.
+    private var _inFlight as Lang.Boolean;
+    // What the in-flight PUT carried. Null means the field was not sent.
+    private var _sentZoneId as Lang.String;
+    private var _sentTemp as Lang.Float or Null;
+    private var _sentOn as Lang.Boolean or Null;
 
     function initialize(device as OrionDevice) {
         View.initialize();
@@ -41,12 +64,15 @@ class DeviceControlView extends WatchUi.View {
         _selectedZone = 0;
         _primaryApplied = false;
         _loading = true;
-        _busy = false;
         _error = null;
         _status = "";
-        _pendingRevertOn = false;
-        _pendingRevertTemp = 0.0;
-        _pendingZoneId = "";
+        _timer = new Timer.Timer();
+        _quietZoneId = null;
+        _confirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        _inFlight = false;
+        _sentZoneId = "";
+        _sentTemp = null;
+        _sentOn = null;
     }
 
     function onLayout(dc as Graphics.Dc) as Void {
@@ -151,16 +177,29 @@ class DeviceControlView extends WatchUi.View {
         }
     }
 
+    function onHide() as Void {
+        flushPending();
+    }
+
+    // START/LAP is ignored while a temperature batch is waiting, a change is
+    // unsent, or any request is in flight (REQ-013). The waiting change is
+    // sent as normal; press again afterwards to refresh.
     function refresh() as Void {
+        if (_inFlight || hasUnsentChanges()) {
+            return;
+        }
+        _inFlight = true;
         _loading = true;
         _error = null;
         _status = "";
         WatchUi.requestUpdate();
+        // Nothing after the _auth call: the callback may already have run.
         _auth.getLiveDevice(_device.serialNumber, method(:onLiveLoaded));
     }
 
     function onLiveLoaded(result as Lang.Object or Null, error as Lang.String or Null) as Void {
         _loading = false;
+        _inFlight = false;
         if (error != null) {
             _error = error;
             WatchUi.requestUpdate();
@@ -168,6 +207,7 @@ class DeviceControlView extends WatchUi.View {
         }
         if (result != null && result instanceof Lang.Dictionary) {
             _zones = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
+            resetConfirmed();
             if (!_primaryApplied && _zones.size() > 0) {
                 _selectedZone = DeviceModel.primaryZoneIndex(_zones);
                 _primaryApplied = true;
@@ -189,6 +229,7 @@ class DeviceControlView extends WatchUi.View {
         if (_zones.size() <= 1) {
             return;
         }
+        flushPending();
         _selectedZone = (_selectedZone + 1) % _zones.size();
         WatchUi.requestUpdate();
     }
@@ -197,23 +238,26 @@ class DeviceControlView extends WatchUi.View {
         if (_zones.size() <= 1) {
             return;
         }
+        flushPending();
         _selectedZone = (_selectedZone - 1 + _zones.size()) % _zones.size();
         WatchUi.requestUpdate();
     }
 
+    // Power taps are never batched. The tap shows at once and ends any quiet
+    // period, so a waiting temperature for the zone travels in the same PUT
+    // (REQ-009). With a request in flight it is sent when that one returns.
     function togglePower() as Void {
-        if (_busy || _loading || _error != null) {
+        if (_loading || _error != null) {
             return;
         }
         var zone = getSelectedZone();
         if (zone == null) {
             return;
         }
-        var newOn = !zone.on;
-        var previousOn = zone.on;
-        zone.on = newOn;
+        zone.on = !zone.on;
+        clearErrorStatus();
         WatchUi.requestUpdate();
-        sendZoneUpdate(zone.id, newOn, null, previousOn, zone.temp);
+        flushPending();
     }
 
     function increaseTemp() as Void {
@@ -224,8 +268,10 @@ class DeviceControlView extends WatchUi.View {
         adjustTemp(-TEMP_STEP);
     }
 
+    // Changes the shown value only and restarts the quiet period. Never
+    // calls _auth and is never blocked by a request in flight.
     private function adjustTemp(delta as Lang.Float) as Void {
-        if (_busy || _loading || _error != null) {
+        if (_loading || _error != null) {
             return;
         }
         var zone = getSelectedZone();
@@ -240,69 +286,219 @@ class DeviceControlView extends WatchUi.View {
             newTemp = _device.tempMax;
         }
         if (newTemp == zone.temp) {
+            // At the limit: no batch, no timer.
             return;
         }
-        var previousTemp = zone.temp;
         zone.temp = newTemp;
+        clearErrorStatus();
+        _quietZoneId = zone.id;
+        _timer.stop();
+        _timer.start(method(:onQuietTimer), QUIET_PERIOD_MS, false);
         WatchUi.requestUpdate();
-        sendZoneUpdate(zone.id, null, newTemp, zone.on, previousTemp);
     }
 
-    // Applies the change optimistically (caller already mutated the local
-    // zone before calling this) and reverts to the previous value if the
-    // PUT fails, so the UI never claims a change that didn't actually land.
-    private function sendZoneUpdate(
-        zoneId as Lang.String,
-        on as Lang.Boolean or Null,
-        temp as Lang.Float or Null,
-        revertOn as Lang.Boolean,
-        revertTemp as Lang.Float
-    ) as Void {
-        var zoneUpdate = { "id" => zoneId } as Lang.Dictionary;
-        if (on != null) {
-            zoneUpdate.put("on", on);
-        }
-        if (temp != null) {
-            zoneUpdate.put("temp", temp);
-        }
+    // Timer callback. Public so method(:onQuietTimer) can reach it.
+    function onQuietTimer() as Void {
+        _quietZoneId = null;
+        sendNextIfIdle();
+    }
 
-        _pendingRevertOn = revertOn;
-        _pendingRevertTemp = revertTemp;
-        _pendingZoneId = zoneId;
-        _busy = true;
-        _status = "Updating…";
-        WatchUi.requestUpdate();
-        _auth.updateLiveDeviceZones(_device.serialNumber, [zoneUpdate], method(:onUpdateDone));
+    // End the quiet period now and send what is waiting. If a request is in
+    // flight, the send starts when that request returns. Safe to call when
+    // nothing is waiting.
+    function flushPending() as Void {
+        _timer.stop();
+        _quietZoneId = null;
+        sendNextIfIdle();
+    }
+
+    // The only caller of updateLiveDeviceZones(). Sends the first zone whose
+    // shown values differ from its confirmed values, one zone per request,
+    // and only when no request is in flight (REQ-011).
+    private function sendNextIfIdle() as Void {
+        if (_inFlight) {
+            return;
+        }
+        for (var i = 0; i < _zones.size(); i += 1) {
+            var zone = _zones[i];
+            var conf = _confirmed.get(zone.id);
+            if (conf == null) {
+                continue;
+            }
+            var inQuiet = (_quietZoneId != null) && zone.id.equals(_quietZoneId);
+            var sendTemp = !inQuiet && !sameTemp(zone.temp, conf.temp);
+            var sendOn = (zone.on != conf.on);
+            if (!sendTemp && !sendOn) {
+                continue;
+            }
+            var body = { "id" => zone.id } as Lang.Dictionary;
+            if (sendOn) {
+                body.put("on", zone.on);
+            }
+            if (sendTemp) {
+                body.put("temp", zone.temp);
+            }
+
+            _sentZoneId = zone.id;
+            _sentTemp = sendTemp ? zone.temp : null;
+            _sentOn = sendOn ? zone.on : null;
+            _inFlight = true;
+            _status = "Updating…";
+            WatchUi.requestUpdate();
+            // Nothing after the _auth call: the callback may already have run.
+            _auth.updateLiveDeviceZones(_device.serialNumber, [body], method(:onUpdateDone));
+            return;
+        }
     }
 
     function onUpdateDone(result as Lang.Object or Null, error as Lang.String or Null) as Void {
-        _busy = false;
+        _inFlight = false;
         if (error != null) {
-            revertZone(_pendingZoneId, _pendingRevertOn, _pendingRevertTemp);
+            revertSentFields();
             _status = "Error: " + error;
-            WatchUi.requestUpdate();
-            return;
+        } else {
+            adoptServerZones(result);
+            _status = "";
         }
-        if (result != null && result instanceof Lang.Dictionary) {
-            var updated = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
-            if (updated.size() > 0) {
-                _zones = updated;
-                if (_selectedZone >= _zones.size()) {
-                    _selectedZone = _zones.size() - 1;
-                }
-            }
-        }
-        _status = "";
+        _sentZoneId = "";
+        _sentTemp = null;
+        _sentOn = null;
         WatchUi.requestUpdate();
+        sendNextIfIdle();
     }
 
-    private function revertZone(zoneId as Lang.String, on as Lang.Boolean, temp as Lang.Float) as Void {
+    // Failed PUT: each sent field the user has not changed since goes back to
+    // the confirmed value, which is the value from before the batch began
+    // (REQ-006). A field changed during the send stays on screen and is sent
+    // next (REQ-010). Confirmed values never change on failure.
+    private function revertSentFields() as Void {
+        var zone = findZone(_sentZoneId);
+        var conf = _confirmed.get(_sentZoneId);
+        if (zone == null || conf == null) {
+            return;
+        }
+        var sentTemp = _sentTemp;
+        if (sentTemp != null && sameTemp(zone.temp, sentTemp)) {
+            zone.temp = conf.temp;
+        }
+        var sentOn = _sentOn;
+        if (sentOn != null && zone.on == sentOn) {
+            zone.on = conf.on;
+        }
+    }
+
+    // Successful PUT: take the server's zones as today, except that a field
+    // the user changed again since it was sent (or that was never sent and
+    // is dirty) keeps its shown value (REQ-012). All lookups are by zone id.
+    private function adoptServerZones(result as Lang.Object or Null) as Void {
+        var updated = [] as Lang.Array<OrionZone>;
+        if (result != null && result instanceof Lang.Dictionary) {
+            updated = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
+        }
+        if (updated.size() == 0) {
+            // No zones in the reply: trust the PUT.
+            var sentConf = _confirmed.get(_sentZoneId);
+            if (sentConf != null) {
+                var sentTemp = _sentTemp;
+                if (sentTemp != null) {
+                    sentConf.temp = sentTemp;
+                }
+                var sentOn = _sentOn;
+                if (sentOn != null) {
+                    sentConf.on = sentOn;
+                }
+            }
+            return;
+        }
+
+        var newConfirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        for (var i = 0; i < updated.size(); i += 1) {
+            var nz = updated[i];
+            var serverOn = nz.on;
+            var serverTemp = nz.temp;
+            var oldShown = findZone(nz.id);
+            var oldConf = _confirmed.get(nz.id);
+            if (oldShown != null && oldConf != null) {
+                var isSent = nz.id.equals(_sentZoneId);
+                var expectedTemp = oldConf.temp;
+                var sentTemp = _sentTemp;
+                if (isSent && sentTemp != null) {
+                    expectedTemp = sentTemp;
+                }
+                var expectedOn = oldConf.on;
+                var sentOn = _sentOn;
+                if (isSent && sentOn != null) {
+                    expectedOn = sentOn;
+                }
+                if (!sameTemp(oldShown.temp, expectedTemp)) {
+                    nz.temp = oldShown.temp;
+                }
+                if (oldShown.on != expectedOn) {
+                    nz.on = oldShown.on;
+                }
+            }
+            newConfirmed.put(nz.id, new OrionZone(nz.id, serverOn, serverTemp));
+        }
+
+        _zones = updated;
+        _confirmed = newConfirmed;
+        if (_selectedZone >= _zones.size()) {
+            _selectedZone = _zones.size() - 1;
+        }
+        var quietId = _quietZoneId;
+        if (quietId != null && findZone(quietId) == null) {
+            _timer.stop();
+            _quietZoneId = null;
+        }
+    }
+
+    private function findZone(zoneId as Lang.String) as OrionZone or Null {
         for (var i = 0; i < _zones.size(); i += 1) {
             if (_zones[i].id.equals(zoneId)) {
-                _zones[i].on = on;
-                _zones[i].temp = temp;
-                return;
+                return _zones[i];
             }
+        }
+        return null;
+    }
+
+    // Float temperatures do not survive +0.5 then -0.5 exactly, so compare
+    // with a small tolerance instead of ==.
+    private function sameTemp(a as Lang.Float, b as Lang.Float) as Lang.Boolean {
+        var d = a - b;
+        if (d < 0) {
+            d = -d;
+        }
+        return d < 0.01;
+    }
+
+    // Rebuild _confirmed from _zones with new OrionZone copies. Sharing the
+    // objects would make shown and confirmed always equal.
+    private function resetConfirmed() as Void {
+        _confirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        for (var i = 0; i < _zones.size(); i += 1) {
+            var z = _zones[i];
+            _confirmed.put(z.id, new OrionZone(z.id, z.on, z.temp));
+        }
+    }
+
+    private function hasUnsentChanges() as Lang.Boolean {
+        if (_quietZoneId != null) {
+            return true;
+        }
+        for (var i = 0; i < _zones.size(); i += 1) {
+            var zone = _zones[i];
+            var conf = _confirmed.get(zone.id);
+            if (conf != null && (zone.on != conf.on || !sameTemp(zone.temp, conf.temp))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Clears a stale "Error: …" status. Leaves "Updating…" alone.
+    private function clearErrorStatus() as Void {
+        if (_status.find("Error") == 0) {
+            _status = "";
         }
     }
 
@@ -368,6 +564,9 @@ class DeviceControlDelegate extends WatchUi.BehaviorDelegate {
     }
 
     function onBack() as Lang.Boolean {
+        // Hand any waiting temperature batch to the network before leaving;
+        // in the root case System.exit() would otherwise drop it.
+        _view.flushPending();
         if (_isRoot) {
             System.exit();
         } else {

@@ -113,6 +113,49 @@ value.
    - Change the setting while on the device list, then open the bed: it
      opens on the new side.
 
+## Temperature batching (oga-23f)
+
+On the control screen a temperature press only changes the number on
+screen. One PUT with the final temperature goes out about a second
+(`QUIET_PERIOD_MS`, 1000 ms) after the last press. Switching zone, a power
+tap, Back and leaving the view send straight away. Only one request is on
+the wire at a time; "Updating…" shows only while one is.
+
+**Counting sends.** Every update prints
+`OrionClient: PUT /v1/devices/<serial>/live` and every reply prints
+`OrionClient: update_live response <code>` in the simulator console. Each
+request line should be followed by its response line before the next
+request line. To make sends fail, turn the simulator's connection off in
+its Settings menu. The app talks to the production API, so keep changes to
+a degree or two.
+
+1. **Five quick UP presses.** The number steps 0.5° on every press. Exactly
+   one PUT line, printed about a second (0.8–1.5 s) after the last press.
+   The status line is empty until that PUT starts.
+2. **Failed send.** Connection off, five UP presses. After the send fails
+   the zone shows the value from before the first press (not one step
+   below the last) and a red `Error: …`. The next UP press clears the
+   error at once.
+3. **Zone switch** (two-zone device). Three UP presses on zone A, then
+   swipe to zone B at once. B appears at once and the PUT line prints at
+   the swipe, not a second later. With the connection off, swiping back
+   shows A at its old value; B is unchanged.
+4. **Leave at once.** Three UP presses, then Back at once. With the view
+   pushed from the device list, the PUT line prints as the view hides and
+   nothing fires later. On a single-device account (control view is the
+   root, Back exits the app) note whether the PUT line prints and whether
+   a response line follows before exit.
+5. **Temperature then power.** UP twice, then SELECT within a second. One
+   PUT carrying both the new temperature and the toggled power. Refresh or
+   reopen: the bed has both. SELECT with nothing waiting sends one PUT at
+   once, as before.
+6. **Press during "Updating…".** While a PUT is in flight, press UP again.
+   The number changes at once, survives the reply, and one more PUT
+   follows the first response line.
+
+START/LAP (refresh) is ignored while a temperature change is waiting or a
+request is in flight; press it again after the send finishes.
+
 ## Known gaps (not bugs, just not built yet)
 
 The 3 remaining P3 stretch beads (away-mode toggle, read-only sleep
