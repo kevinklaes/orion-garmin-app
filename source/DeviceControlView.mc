@@ -7,7 +7,7 @@
 //
 // Backend seam (oga-2cx): the view reaches the network only through one
 // BedBackend (see BedBackend.mc): OrionBackend for an Orion bed (zones,
-// GET/PUT /v1/devices/{serial_number}/live) or EmberTideClient for a
+// GET/PUT /v1/devices/{serial_number}/live) or the Ember & Tide client for a
 // self-hosted Ember & Tide server (people). It never branches on which one
 // it has; a side says itself whether it is read-only and what its power
 // labels are, and a BedState carries the range, step and number format.

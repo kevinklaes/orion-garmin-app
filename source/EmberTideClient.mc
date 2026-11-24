@@ -153,7 +153,7 @@ class EmberTideClient extends BedBackend {
         }
     }
 
-    // Clear the pending callback before invoking it, as OrionAuth does: the
+    // Clear the pending callback before invoking it, as OrionBackend does: the
     // callback may start the next request.
     private function finish(result as Lang.Object or Null, error as Lang.String or Null) as Void {
         var callback = _callback;
