@@ -12,4 +12,10 @@
     <string id="ApiKeyPrompt">Long-lived key from app.orionsleep.com/api-keys</string>
     <string id="PhoneTitle">Phone number</string>
     <string id="PhonePrompt">Full number with country code, e.g. 15132015808</string>
+    <!-- Primary side setting (oga-ep7) -->
+    <string id="BedGroupTitle">Bed</string>
+    <string id="PrimarySideTitle">Primary side</string>
+    <string id="PrimarySidePrompt">The side of the bed the app opens on. Matches Zone A / Zone B on the watch.</string>
+    <string id="PrimarySideA">Side A</string>
+    <string id="PrimarySideB">Side B</string>
 </strings>

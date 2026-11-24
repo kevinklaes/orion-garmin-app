@@ -7,4 +7,7 @@
          provisioning flow (oga bead), not stored as static config. -->
     <property id="api_key" type="string"></property>
     <property id="phone" type="string"></property>
+    <!-- Primary side of the bed: 0 = side A (zone_a), 1 = side B (zone_b).
+         Read only through DeviceModel.primaryZoneId(). -->
+    <property id="primary_side" type="number">0</property>
 </properties>

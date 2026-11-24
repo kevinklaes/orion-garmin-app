@@ -4,6 +4,7 @@
 // get_live_device()/update_live_device_zones() docstrings. `serialNumber`
 // (not the UUID `id`) is what every live/control call keys on -- see
 // OrionClient's CRITICAL comment; `id` is kept only for display/dedup.
+using Toybox.Application;
 using Toybox.Lang;
 
 class OrionDevice {
@@ -139,6 +140,55 @@ module DeviceModel {
             return "Zone " + id.substring(5, id.length()).toUpper();
         }
         return id;
+    }
+
+    // ── Primary side (oga-ep7) ───────────────────────────────────────────
+    // The "Primary side" app setting (resources/settings: primary_side,
+    // 0 = side A, 1 = side B) decides which zone the app shows first. These
+    // four functions are the only code that knows about the setting. They
+    // use Toybox.Lang and Toybox.Application only, so the glance and a
+    // background service can call them (oga-6bf).
+
+    const PRIMARY_SIDE_PROPERTY = "primary_side";
+    const ZONE_A_ID = "zone_a";
+    const ZONE_B_ID = "zone_b";
+
+    // The zone id of the user's primary side. Reads the setting on every
+    // call (no caching) and never throws: anything unexpected means side A.
+    function primaryZoneId() as Lang.String {
+        var value = null;
+        try {
+            value = Application.Properties.getValue(PRIMARY_SIDE_PROPERTY);
+        } catch (e) {
+            value = null;
+        }
+        return zoneIdForSide(value);
+    }
+
+    // Pure mapping from the stored setting value to a zone id. Only the
+    // number 1 means side B.
+    function zoneIdForSide(value as Lang.Object or Null) as Lang.String {
+        if (value != null && value instanceof Lang.Number && (value as Lang.Number) == 1) {
+            return ZONE_B_ID;
+        }
+        return ZONE_A_ID;
+    }
+
+    // Index of the zone to show first: the primary side's zone if the bed
+    // reports it, otherwise the first zone.
+    function primaryZoneIndex(zones as Lang.Array<OrionZone>) as Lang.Number {
+        return zoneIndexForId(zones, primaryZoneId());
+    }
+
+    // Pure core of primaryZoneIndex(). Returns 0 when zoneId is absent or
+    // the list is empty.
+    function zoneIndexForId(zones as Lang.Array<OrionZone>, zoneId as Lang.String) as Lang.Number {
+        for (var i = 0; i < zones.size(); i += 1) {
+            if (zones[i].id.equals(zoneId)) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     function stringOrNull(value as Lang.Object or Null) as Lang.String or Null {
