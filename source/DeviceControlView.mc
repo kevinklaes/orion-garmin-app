@@ -79,6 +79,8 @@ class DeviceControlView extends WatchUi.View {
     }
 
     function onShow() as Void {
+        // Opening a bed makes it the bed the glance reports on.
+        GlanceCache.setGlanceBed(_device.serialNumber);
         if (_zones.size() == 0 && _loading) {
             refresh();
         }
@@ -132,7 +134,7 @@ class DeviceControlView extends WatchUi.View {
         dc.drawText(width / 2, height / 2 - 44, Graphics.FONT_MEDIUM, powerLabel, Graphics.TEXT_JUSTIFY_CENTER);
 
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        var tempText = zone.temp.format("%.1f") + "°";
+        var tempText = DeviceModel.tempText(zone.temp);
         dc.drawText(width / 2, height / 2 - 8, Graphics.FONT_NUMBER_MEDIUM, tempText, Graphics.TEXT_JUSTIFY_CENTER);
 
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
@@ -208,6 +210,7 @@ class DeviceControlView extends WatchUi.View {
         if (result != null && result instanceof Lang.Dictionary) {
             _zones = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
             resetConfirmed();
+            saveGlanceCache();
             if (!_primaryApplied && _zones.size() > 0) {
                 _selectedZone = DeviceModel.primaryZoneIndex(_zones);
                 _primaryApplied = true;
@@ -358,6 +361,7 @@ class DeviceControlView extends WatchUi.View {
             _status = "Error: " + error;
         } else {
             adoptServerZones(result);
+            saveGlanceCache();
             _status = "";
         }
         _sentZoneId = "";
@@ -479,6 +483,21 @@ class DeviceControlView extends WatchUi.View {
             var z = _zones[i];
             _confirmed.put(z.id, new OrionZone(z.id, z.on, z.temp));
         }
+    }
+
+    // Saves the confirmed values (what the server last reported), never the
+    // values that are only on screen. Called only after a successful load
+    // or update. GlanceCache.write() ignores a bed that is not the glance
+    // bed and an empty list.
+    private function saveGlanceCache() as Void {
+        var confirmed = [] as Lang.Array<OrionZone>;
+        for (var i = 0; i < _zones.size(); i += 1) {
+            var conf = _confirmed.get(_zones[i].id);
+            if (conf != null) {
+                confirmed.add(conf);
+            }
+        }
+        GlanceCache.write(_device.serialNumber, DeviceModel.glanceEntries(confirmed), null);
     }
 
     private function hasUnsentChanges() as Lang.Boolean {

@@ -30,13 +30,22 @@ pattern (see [docs/DESIGN.md](DESIGN.md#store-publication)).
       Store submission needs real branded artwork sized correctly per
       product, not a scaled placeholder). Re-check exact per-product sizes
       against the current SDK's device reference before finalizing.
-- [ ] **Permissions justified** — `Communications` only, used for Orion REST
-      API calls (`Communications.makeWebRequest` to `api1.orionbed.com`) to
-      fetch device/live state and send power/temperature control commands.
+- [ ] **Permissions justified** — two permissions:
+      - `Communications`: Orion REST API calls
+        (`Communications.makeWebRequest` to `api1.orionbed.com`) to fetch
+        device/live state and send power/temperature control commands.
+      - `Background` (oga-6bf): a background service wakes every 30 minutes
+        while signed in and fetches the on/off state and set temperature of
+        the bed last opened in the app, so the glance shows current state
+        without opening the app. One request per run (two when a phone +
+        code token needs refreshing), none when signed out or with no phone
+        connection. See docs/DESIGN.md, "Token refresh and the glance's
+        background refresh".
       No Position, Sensor, or Sensor History permissions are requested.
 - [ ] **Privacy policy** — required because the app uses `Communications` to
       handle an Orion account credential (API key or phone+OTP-derived
-      access/refresh token) and live bed state. See
+      access/refresh token) and live bed state, and stores the last known
+      bed state on the watch for the glance. See
       [PRIVACY.md](../PRIVACY.md); host it at a public URL before
       submission and link it from the store listing.
 

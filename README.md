@@ -22,6 +22,14 @@ features (away-mode toggle, sleep insights display, schedule temperature
   `source/DeviceControlView.mc` — the three real screens.
 - `source/OrionClient.mc` — REST client against the live Orion Sleep API.
 - `source/OrionAuth.mc` — on-device token storage + refresh.
+- `source/OrionGlanceView.mc` — the glance: whether your side of the bed is
+  on and its set temperature, read from saved state (no network).
+- `source/GlanceCache.mc` — the saved bed state the glance reads, and the
+  glance's text rules; `source/GlanceCacheTest.mc` — its unit tests.
+- `source/GlanceRefresh.mc` — background service that refreshes the saved
+  bed state every 30 minutes.
+- `source/OrionSession.mc` — sign-in rules shared by the app and the
+  background service (Storage keys, token expiry margin, token parsing).
 - `resources/settings/` — `api_key` and `phone` fields (phone-side settings
   convenience; the actual OTP verification code is always entered on-device,
   never stored as a static property), plus `primary_side`, the side of the
@@ -53,7 +61,7 @@ store from your own machine.
 ## Project layout
 
 ```
-manifest.xml           # Device App, watch + Edge products, Communications permission
+manifest.xml           # Device App, watch + Edge products, Communications + Background permissions
 monkey.jungle
 source/
   OrionSleepApp.mc      # App entry, getInitialView (placeholder StatusView for now)

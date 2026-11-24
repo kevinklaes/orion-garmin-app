@@ -23,3 +23,13 @@ fr965.resourcePath = $(base.resourcePath);resources-icon-65
 fr970.resourcePath = $(base.resourcePath);resources-icon-65
 edge1050.resourcePath = $(base.resourcePath);resources-icon-68
 venu3.resourcePath = $(base.resourcePath);resources-icon-70
+
+# Glance: how old bed state is marked (source/GlanceCache.mc canDim()).
+# Screens with a gray draw it dimmer (:colorScreen). The products below are
+# black and white only (bitsPerPixel 1 in the SDK's Devices/<id>/compiler.json)
+# and get a dashed underline instead (:monoScreen). Each product must exclude
+# exactly one of the two. Re-check when adding products.
+base.excludeAnnotations = monoScreen
+instinct3solar45mm.excludeAnnotations = colorScreen
+instincte40mm.excludeAnnotations = colorScreen
+instincte45mm.excludeAnnotations = colorScreen

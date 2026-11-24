@@ -291,7 +291,7 @@ class OrionClient {
         if (responseCode >= 200 && responseCode < 300) {
             var tokens = null;
             if (data != null && data instanceof Lang.Dictionary) {
-                tokens = extractTokens(data as Lang.Dictionary);
+                tokens = OrionSession.extractTokens(data as Lang.Dictionary);
             }
             if (tokens != null) {
                 _callback.invoke(tokens, null);
@@ -318,7 +318,7 @@ class OrionClient {
             _callback.invoke(null, "Unexpected refresh response shape");
             return;
         }
-        var tokens = extractTokens(data as Lang.Dictionary);
+        var tokens = OrionSession.extractTokens(data as Lang.Dictionary);
         if (tokens == null) {
             _callback.invoke(null, "Unexpected refresh response shape");
             return;
@@ -383,7 +383,7 @@ class OrionClient {
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function apiUrl(path as Lang.String) as Lang.String {
-        return "https://api1.orionbed.com" + path;
+        return OrionSession.BASE_URL + path;
     }
 
     private function authHeaders() as Lang.Dictionary {
@@ -406,69 +406,6 @@ class OrionClient {
             return response;
         }
         return data;
-    }
-
-    // Extracts a normalised {"access_token", "refresh_token", "expires_at"}
-    // dict from any of the three known response shapes -- mirrors api.py's
-    // _extract_tokens exactly (nested snake_case, flat camelCase, flat
-    // snake_case). Returns null if none match.
-    private function extractTokens(data as Lang.Dictionary) as Lang.Dictionary or Null {
-        // 1. Nested snake_case: response.session.access_token
-        var response = data.get("response");
-        if (response != null && response instanceof Lang.Dictionary) {
-            var session = (response as Lang.Dictionary).get("session");
-            if (session != null && session instanceof Lang.Dictionary) {
-                var sessionDict = session as Lang.Dictionary;
-                if (sessionDict.get("access_token") != null) {
-                    return {
-                        "access_token" => sessionDict.get("access_token"),
-                        "refresh_token" => stringOrDefault(sessionDict.get("refresh_token"), ""),
-                        "expires_at" => numberOrDefault(sessionDict.get("expires_at"), 0)
-                    };
-                }
-            }
-        }
-
-        // 2. Flat camelCase: accessToken / refreshToken / expiresAt
-        if (data.get("accessToken") != null) {
-            var expiresAt = data.get("expiresAt");
-            if (expiresAt == null) {
-                expiresAt = data.get("expires_at");
-            }
-            return {
-                "access_token" => data.get("accessToken"),
-                "refresh_token" => stringOrDefault(data.get("refreshToken"), ""),
-                "expires_at" => numberOrDefault(expiresAt, 0)
-            };
-        }
-
-        // 3. Flat snake_case: access_token / refresh_token / expires_at
-        if (data.get("access_token") != null) {
-            return {
-                "access_token" => data.get("access_token"),
-                "refresh_token" => stringOrDefault(data.get("refresh_token"), ""),
-                "expires_at" => numberOrDefault(data.get("expires_at"), 0)
-            };
-        }
-
-        return null;
-    }
-
-    private function stringOrDefault(value as Lang.Object or Null, fallback as Lang.String) as Lang.String {
-        if (value != null && value instanceof Lang.String) {
-            return value as Lang.String;
-        }
-        return fallback;
-    }
-
-    private function numberOrDefault(value as Lang.Object or Null, fallback as Lang.Number) as Lang.Number {
-        if (value != null && value instanceof Lang.Number) {
-            return value as Lang.Number;
-        }
-        if (value != null && value instanceof Lang.Float) {
-            return (value as Lang.Float).toNumber();
-        }
-        return fallback;
     }
 
     // Distinguishes connection failures (negative/no responseCode -- no
