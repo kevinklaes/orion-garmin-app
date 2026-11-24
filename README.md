@@ -24,7 +24,8 @@ features (away-mode toggle, sleep insights display, schedule temperature
 - `source/OrionAuth.mc` — on-device token storage + refresh.
 - `resources/settings/` — `api_key` and `phone` fields (phone-side settings
   convenience; the actual OTP verification code is always entered on-device,
-  never stored as a static property).
+  never stored as a static property), plus `primary_side`, the side of the
+  bed (A or B) the app opens on.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design and
 [docs/TESTING.md](docs/TESTING.md) for how to actually run and click

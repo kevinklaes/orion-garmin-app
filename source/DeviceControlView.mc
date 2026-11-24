@@ -20,6 +20,9 @@ class DeviceControlView extends WatchUi.View {
     private var _auth as OrionAuth;
     private var _zones as Lang.Array<OrionZone>;
     private var _selectedZone as Lang.Number;
+    // The primary side is applied once per view, on the first load that
+    // returns zones, so a refresh never moves the user off the side they chose.
+    private var _primaryApplied as Lang.Boolean;
     private var _loading as Lang.Boolean;
     private var _busy as Lang.Boolean;
     private var _error as Lang.String or Null;
@@ -36,6 +39,7 @@ class DeviceControlView extends WatchUi.View {
         _auth = new OrionAuth();
         _zones = [] as Lang.Array<OrionZone>;
         _selectedZone = 0;
+        _primaryApplied = false;
         _loading = true;
         _busy = false;
         _error = null;
@@ -164,7 +168,10 @@ class DeviceControlView extends WatchUi.View {
         }
         if (result != null && result instanceof Lang.Dictionary) {
             _zones = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
-            if (_selectedZone >= _zones.size()) {
+            if (!_primaryApplied && _zones.size() > 0) {
+                _selectedZone = DeviceModel.primaryZoneIndex(_zones);
+                _primaryApplied = true;
+            } else if (_selectedZone >= _zones.size()) {
                 _selectedZone = _zones.size() > 0 ? _zones.size() - 1 : 0;
             }
         }

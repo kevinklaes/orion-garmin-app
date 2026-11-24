@@ -8,4 +8,12 @@
             <settingConfig type="alphaNumeric" required="false" maxLength="15"/>
         </setting>
     </group>
+    <group id="orionBed" title="@Strings.BedGroupTitle">
+        <setting propertyKey="@Properties.primary_side" title="@Strings.PrimarySideTitle" prompt="@Strings.PrimarySidePrompt">
+            <settingConfig type="list">
+                <listEntry value="0">@Strings.PrimarySideA</listEntry>
+                <listEntry value="1">@Strings.PrimarySideB</listEntry>
+            </settingConfig>
+        </setting>
+    </group>
 </settings>
