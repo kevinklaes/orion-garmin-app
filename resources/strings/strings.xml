@@ -18,4 +18,15 @@
     <string id="PrimarySidePrompt">The side of the bed the app opens on. Matches Zone A / Zone B on the watch.</string>
     <string id="PrimarySideA">Side A</string>
     <string id="PrimarySideB">Side B</string>
+    <!-- Backend setting (oga-2cx) -->
+    <string id="BackendGroupTitle">Advanced</string>
+    <string id="BackendGroupDesc">Use your own Ember &amp; Tide server in place of the Orion cloud</string>
+    <string id="BackendTitle">Server</string>
+    <string id="BackendPrompt">Leave on Orion cloud unless you run Ember &amp; Tide</string>
+    <string id="BackendOrion">Orion cloud</string>
+    <string id="BackendEmberTide">Ember &amp; Tide (advanced)</string>
+    <string id="EtUrlTitle">Ember &amp; Tide address</string>
+    <string id="EtUrlPrompt">Starts with https://, for example https://bed.example.com</string>
+    <string id="EtKeyTitle">Ember &amp; Tide key</string>
+    <string id="EtKeyPrompt">A key for your own side of the bed. See the README.</string>
 </strings>

@@ -10,4 +10,10 @@
     <!-- Primary side of the bed: 0 = side A (zone_a), 1 = side B (zone_b).
          Read only through DeviceModel.primaryZoneId(). -->
     <property id="primary_side" type="number">0</property>
+    <!-- Backend (oga-2cx): 0 = Orion cloud, 1 = Ember & Tide. The Ember &
+         Tide address and key are used only when backend is 1. Read only
+         through BackendConfig. -->
+    <property id="backend" type="number">0</property>
+    <property id="et_url" type="string"></property>
+    <property id="et_key" type="string"></property>
 </properties>

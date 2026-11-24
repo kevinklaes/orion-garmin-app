@@ -1,7 +1,8 @@
 # Testing the app yourself
 
-A small unit-test suite (`source/PrimarySideTest.mc`) covers the primary
-side logic (see [Unit tests](#unit-tests)). Everything else is still
+A small unit-test suite covers the primary side logic, the backend
+settings, the Ember & Tide parsing and the control view's batching through
+a fake backend (see [Unit tests](#unit-tests)). Everything else is still
 verified manually, via the Connect IQ simulator or a real device (Connect IQ
 apps aren't easily unit-testable the way a typical backend service is). The
 README's "Build" section only shows a raw `monkeyc` compile command, not how
@@ -61,14 +62,28 @@ pgrep -f "ConnectIQ.app/Contents/MacOS/simulator" || "$SDK/connectiq" &
 perl -e 'alarm 150; exec @ARGV' "$SDK/monkeydo" bin/OrionSleep-test.prg fenix7 -t
 ```
 
-A passing run ends with `PASSED (passed=9, failed=0, errors=0)`. **Read the
+The test files:
+
+- `source/PrimarySideTest.mc` — the primary side setting (oga-ep7).
+- `source/BackendViewTest.mc` — the control view through a fake
+  `BedBackend`: opening on the home side, read-only sides, one call per
+  batch, the first press with no set temperature, temperature before power,
+  and `OrionBackend` reading Orion live JSON (oga-2cx).
+- `source/BackendConfigTest.mc` — the backend choice, the URL check and the
+  set-up messages (oga-2cx).
+- `source/EmberTideTest.mc` — Ember & Tide headers, who is me, snapshot
+  parsing (hand-written samples), adjust and tonight bodies, the power
+  action, labels, units and error texts (oga-2cx).
+
+A passing run ends with `PASSED (passed=33, failed=0, errors=0)`. **Read the
 result from that last output line, not from the exit code**: `monkeydo -t`
 has been seen to exit 1 for passing and failing runs alike. The `perl alarm`
 wrapper stops a hung run after 150 seconds.
 
 The tests never write a property, so the side they expect comes from
 whatever `primary_side` the simulator currently has; they pass with either
-value.
+value. The backend tests call pure functions only and pass whatever the
+`backend` setting is.
 
 ## What to actually click through
 
@@ -155,6 +170,62 @@ a degree or two.
 
 START/LAP (refresh) is ignored while a temperature change is waiting or a
 request is in flight; press it again after the send finishes.
+
+## Ember & Tide mode (oga-2cx)
+
+With the `backend` setting on Ember & Tide (1) the app skips the Orion
+sign-in and the device list and opens the control screen on a self-hosted
+Ember & Tide server (see the README's "Ember & Tide (advanced)" section).
+Set `backend`, `et_url` and `et_key` in the simulator's App Settings Editor
+for the running app, then restart the app: a changed setting takes effect
+the next time the app opens. Every request prints
+`EmberTideClient: <GET|POST> <path>` and every reply
+`EmberTideClient: <operation> response <code>`; the key is never printed.
+
+None of these checks needs a server, and none should be pointed at a real
+one.
+
+1. **Orion default.** `backend` 0 (or cleared): the app opens exactly as
+   before (provisioning, or the device list when signed in). With an Orion
+   account, repeat checks 1, 2 and 5 of
+   [Temperature batching](#temperature-batching-oga-23f): the console still
+   shows `OrionClient: PUT …` lines.
+2. **Bad address.** `backend` 1, `et_url` `http://example.com`, any key: the
+   watch shows "Server URL must start with https://". No `EmberTideClient:`
+   line. Back exits.
+3. **Missing key.** `backend` 1, a `https://` address, empty key: "Set the
+   server URL and key in Garmin Connect". No request line.
+4. **Unreachable or wrong server.** `backend` 1, `et_url`
+   `https://example.com`, `et_key` `test`: one
+   `EmberTideClient: GET /api/auth/state` line, then an error screen whose
+   text is readable in full inside the round screen. SELECT sends the
+   request again. Check `fenix7` and `epix2pro47mm`.
+5. **Longest message.** On `fenix7`, with a temporary local edit (never
+   committed) that makes `EmberTideModel.errorText()` return "This device
+   key can't do that. Open the app instead.", check that the load-error
+   screen shows all of it, then force it as a send error and check the
+   status area shows all of it too.
+6. **Switch back.** With an Orion sign-in stored, set `backend` 1 and open
+   the app, then set it to 0 and open again: the Orion screens come back
+   without a new sign-in.
+
+### First run against a real server
+
+For the owner of an Ember & Tide server, with a key made as the README
+describes:
+
+1. Open the app. The title is "Ember & Tide" and the first page is your
+   name, set temperature, state and "Now …°" measured temperature. Compare
+   them with the Ember & Tide app; the unit is your Ember & Tide unit.
+2. Press UP five times quickly. The number steps 1° (°F) or 0.5° (°C) per
+   press, and about a second after the last press the console shows one
+   `EmberTideClient: POST /api/people/<you>/adjust` line and its response.
+3. Press SELECT. One `…/tonight` line; the label becomes "Off tonight".
+   Press SELECT again: the side resumes.
+4. Swipe to your partner's page and press UP: "View only", and no request
+   line.
+5. Note which error texts appear on the real phone (whether Garmin Connect
+   passes the server's `detail` text through).
 
 ## Known gaps (not bugs, just not built yet)
 

@@ -170,7 +170,7 @@ class DeviceListView extends WatchUi.View {
 
         if (devices.size() == 1) {
             _autoSelected = true;
-            var controlView = new DeviceControlView(devices[0]);
+            var controlView = new DeviceControlView(new OrionBackend(devices[0]));
             WatchUi.switchToView(controlView, new DeviceControlDelegate(controlView, true), WatchUi.SLIDE_IMMEDIATE);
             return;
         }
@@ -248,7 +248,7 @@ class DeviceListView extends WatchUi.View {
         if (device == null) {
             return;
         }
-        var controlView = new DeviceControlView(device);
+        var controlView = new DeviceControlView(new OrionBackend(device));
         WatchUi.pushView(controlView, new DeviceControlDelegate(controlView, false), WatchUi.SLIDE_LEFT);
     }
 

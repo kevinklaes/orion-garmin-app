@@ -1,23 +1,31 @@
-// Device control view (oga-8m6) — per zone power toggle + temperature
-// adjust, via GET/PUT /v1/devices/{serial_number}/live
-// (update_live_device_zones -- the canonical control primitive per api.py's
-// docstring). One zone shown at a time; UP/DOWN (or swipe up/down) adjust
-// its temperature, SELECT (or tap) toggles its power, and — when a device
-// has more than one zone — swipe left/right or the page keys switch which
-// zone is focused. Mirrors GarminMerge's PRDetailView structure (view +
-// delegate + confirmation/menu delegates in one file).
+// Device control view (oga-8m6) — per side power toggle + temperature
+// adjust. One side shown at a time; UP/DOWN (or swipe up/down) adjust its
+// temperature, SELECT (or tap) toggles its power, and — when there is more
+// than one side — swipe left/right or the page keys switch which side is
+// focused. Mirrors GarminMerge's PRDetailView structure (view + delegate +
+// confirmation/menu delegates in one file).
+//
+// Backend seam (oga-2cx): the view reaches the network only through one
+// BedBackend (see BedBackend.mc): OrionBackend for an Orion bed (zones,
+// GET/PUT /v1/devices/{serial_number}/live) or the Ember & Tide client for a
+// self-hosted Ember & Tide server (people). It never branches on which one
+// it has; a side says itself whether it is read-only and what its power
+// labels are, and a BedState carries the range, step and number format.
+// Error texts arrive complete from the backend.
 //
 // Temperature batching (oga-23f): a press only changes the number on screen
-// and restarts a one-shot timer. One PUT carrying the final temperature goes
-// out QUIET_PERIOD_MS after the last press. Switching zone, a power tap, Back
-// and onHide() end the wait early and send at once. For each zone the view
-// keeps the shown values (the OrionZone in _zones) and the confirmed values
-// (the last on/temp the server reported, in _confirmed by zone id); a zone is
-// sent when the two differ. A failed send puts the confirmed value back on
-// screen unless the user changed it again during the send. Only one request
-// (PUT or GET) is handed to OrionAuth at a time; sendNextIfIdle() is the only
-// sender of updates. START/LAP refresh is ignored while a change is waiting
-// or a request is in flight.
+// and restarts a one-shot timer. One request carrying the final temperature
+// goes out QUIET_PERIOD_MS after the last press. Switching side, a power
+// tap, Back and onHide() end the wait early and send at once. For each side
+// the view keeps the shown values (the BedSide in _zones) and the confirmed
+// values (the last on/temp the server reported, in _confirmed by side id); a
+// side is sent when the two differ. A failed send puts the confirmed value
+// back on screen unless the user changed it again during the send. Only one
+// request is handed to the backend at a time; sendNextIfIdle() is the only
+// sender of updates. When the backend cannot carry power and temperature in
+// one request, the temperature goes first and the power change follows its
+// reply. START/LAP refresh is ignored while a change is waiting or a request
+// is in flight.
 using Toybox.Graphics;
 using Toybox.Lang;
 using Toybox.System;
@@ -26,49 +34,63 @@ using Toybox.WatchUi;
 
 class DeviceControlView extends WatchUi.View {
 
-    // Mirrors climate.py's _attr_target_temperature_step.
-    private const TEMP_STEP = 0.5;
     // How long after the last temperature press the batch is sent.
     private const QUIET_PERIOD_MS = 1000;
 
-    private var _device as OrionDevice;
-    private var _auth as OrionAuth;
-    private var _zones as Lang.Array<OrionZone>;
+    private var _backend as BedBackend;
+    // From _backend.describe().
+    private var _title as Lang.String;
+    private var _powerWithTemp as Lang.Boolean;
+    // From the last BedState: range, step and number format, as shown.
+    private var _tempMin as Lang.Float;
+    private var _tempMax as Lang.Float;
+    private var _step as Lang.Float;
+    private var _tempFormat as Lang.String;
+    private var _zones as Lang.Array<BedSide>;
     private var _selectedZone as Lang.Number;
-    // The primary side is applied once per view, on the first load that
-    // returns zones, so a refresh never moves the user off the side they chose.
+    // The home side is applied once per view, on the first load that
+    // returns sides, so a refresh never moves the user off the side they chose.
     private var _primaryApplied as Lang.Boolean;
     private var _loading as Lang.Boolean;
     private var _error as Lang.String or Null;
     private var _status as Lang.String;
+    // True when _status is an error (drawn red, cleared by the next press).
+    private var _statusIsError as Lang.Boolean;
     // The one timer. Started one-shot by a temperature press, stopped by a
     // flush.
     private var _timer as Timer.Timer;
-    // Zone whose temperature batch is still waiting for the timer, or null.
+    // Side whose temperature batch is still waiting for the timer, or null.
     private var _quietZoneId as Lang.String or Null;
-    // Last on/temp the server reported, by zone id. Separate objects from the
-    // ones in _zones, which hold the values shown on screen.
-    private var _confirmed as Lang.Dictionary<Lang.String, OrionZone>;
-    // True from handing any request (PUT or GET) to _auth until its callback.
+    // Last on/temp the server reported, by side id. Copies, separate from
+    // the objects in _zones, which hold the values shown on screen.
+    private var _confirmed as Lang.Dictionary<Lang.String, BedSide>;
+    // True from handing any request to _backend until its callback.
     private var _inFlight as Lang.Boolean;
-    // What the in-flight PUT carried. Null means the field was not sent.
+    // What the in-flight update carried. Null means the field was not sent.
     private var _sentZoneId as Lang.String;
     private var _sentTemp as Lang.Float or Null;
     private var _sentOn as Lang.Boolean or Null;
 
-    function initialize(device as OrionDevice) {
+    function initialize(backend as BedBackend) {
         View.initialize();
-        _device = device;
-        _auth = new OrionAuth();
-        _zones = [] as Lang.Array<OrionZone>;
+        _backend = backend;
+        var info = backend.describe();
+        _title = info.title;
+        _powerWithTemp = info.powerCarriesTemperature;
+        _tempMin = 0.0;
+        _tempMax = 0.0;
+        _step = 0.5;
+        _tempFormat = "%.1f";
+        _zones = [] as Lang.Array<BedSide>;
         _selectedZone = 0;
         _primaryApplied = false;
         _loading = true;
         _error = null;
         _status = "";
+        _statusIsError = false;
         _timer = new Timer.Timer();
         _quietZoneId = null;
-        _confirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        _confirmed = {} as Lang.Dictionary<Lang.String, BedSide>;
         _inFlight = false;
         _sentZoneId = "";
         _sentTemp = null;
@@ -92,7 +114,7 @@ class DeviceControlView extends WatchUi.View {
         dc.clear();
 
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(width / 2, 8, Graphics.FONT_MEDIUM, _device.name, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(width / 2, 8, Graphics.FONT_MEDIUM, _title, Graphics.TEXT_JUSTIFY_CENTER);
 
         var headerBottom = 34;
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
@@ -105,8 +127,8 @@ class DeviceControlView extends WatchUi.View {
         }
 
         if (_error != null) {
-            dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-            drawWrapped(dc, 16, headerBottom + 16, width - 32, "Error: " + (_error as Lang.String));
+            // Wrapped by word inside the round glass (MessageText).
+            MessageText.draw(dc, _error as Lang.String, Graphics.COLOR_RED, headerBottom + 6, height - 34);
             dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
             dc.drawText(width / 2, height - 22, Graphics.FONT_XTINY, "SELECT to retry", Graphics.TEXT_JUSTIFY_CENTER);
             return;
@@ -121,30 +143,54 @@ class DeviceControlView extends WatchUi.View {
 
         var zoneTop = headerBottom + 14;
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(width / 2, zoneTop, Graphics.FONT_SMALL, DeviceModel.zoneLabel(zone.id), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(width / 2, zoneTop, Graphics.FONT_SMALL, zone.label, Graphics.TEXT_JUSTIFY_CENTER);
 
         if (_zones.size() > 1) {
             drawZonePageDots(dc, width, zoneTop + 24);
         }
 
-        var powerLabel = zone.on ? "ON" : "OFF";
-        dc.setColor(zone.on ? Graphics.COLOR_GREEN : Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        var powerLabel = zone.on ? zone.onText : zone.offText;
+        dc.setColor((zone.on && zone.running) ? Graphics.COLOR_GREEN : Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawText(width / 2, height / 2 - 44, Graphics.FONT_MEDIUM, powerLabel, Graphics.TEXT_JUSTIFY_CENTER);
 
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        var tempText = zone.temp.format("%.1f") + "°";
-        dc.drawText(width / 2, height / 2 - 8, Graphics.FONT_NUMBER_MEDIUM, tempText, Graphics.TEXT_JUSTIFY_CENTER);
+        var temp = zone.temp;
+        if (temp != null) {
+            var tempText = temp.format(_tempFormat) + "°";
+            dc.drawText(width / 2, height / 2 - 8, Graphics.FONT_NUMBER_MEDIUM, tempText, Graphics.TEXT_JUSTIFY_CENTER);
+        } else {
+            // Number fonts may have no dash glyph.
+            dc.drawText(width / 2, height / 2 - 2, Graphics.FONT_MEDIUM, "--", Graphics.TEXT_JUSTIFY_CENTER);
+        }
+
+        // A status too wide for one line wraps over the range and hint lines.
+        if (_status.length() > 0 && dc.getTextWidthInPixels(_status, Graphics.FONT_XTINY) > (width * 3) / 4) {
+            MessageText.draw(dc, _status, statusColor(), height / 2 + 30, height - 36);
+            return;
+        }
 
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
-        var rangeText = _device.tempMin.format("%.0f") + "–" + _device.tempMax.format("%.0f") + "°";
+        var rangeText = _tempMin.format("%.0f") + "–" + _tempMax.format("%.0f") + "°";
+        var measured = zone.measured;
+        if (measured != null) {
+            rangeText = "Now " + measured.format(_tempFormat) + "° · " + rangeText;
+        }
         dc.drawText(width / 2, height / 2 + 40, Graphics.FONT_XTINY, rangeText, Graphics.TEXT_JUSTIFY_CENTER);
 
         if (_status.length() > 0) {
-            dc.setColor(_status.find("Error") == 0 ? Graphics.COLOR_RED : Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
+            dc.setColor(statusColor(), Graphics.COLOR_TRANSPARENT);
             dc.drawText(width / 2, height - 78, Graphics.FONT_XTINY, _status, Graphics.TEXT_JUSTIFY_CENTER);
         }
 
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        if (zone.readOnly) {
+            var viewOnly = "View only";
+            if (_zones.size() > 1) {
+                viewOnly = viewOnly + " · SWIPE";
+            }
+            dc.drawText(width / 2, height - 44, Graphics.FONT_XTINY, viewOnly, Graphics.TEXT_JUSTIFY_CENTER);
+            return;
+        }
         // Round screens are narrower than dc.getWidth() near the bottom
         // edge (the bezel cuts the chord short), so a single wide hint
         // line clips on round watches even though there's room higher up.
@@ -164,6 +210,10 @@ class DeviceControlView extends WatchUi.View {
             }
             dc.drawText(width / 2, height - 40, Graphics.FONT_XTINY, hint, Graphics.TEXT_JUSTIFY_CENTER);
         }
+    }
+
+    private function statusColor() as Graphics.ColorType {
+        return _statusIsError ? Graphics.COLOR_RED : Graphics.COLOR_YELLOW;
     }
 
     private function drawZonePageDots(dc as Graphics.Dc, width as Lang.Number, y as Lang.Number) as Void {
@@ -192,9 +242,10 @@ class DeviceControlView extends WatchUi.View {
         _loading = true;
         _error = null;
         _status = "";
+        _statusIsError = false;
         WatchUi.requestUpdate();
-        // Nothing after the _auth call: the callback may already have run.
-        _auth.getLiveDevice(_device.serialNumber, method(:onLiveLoaded));
+        // Nothing after the backend call: the callback may already have run.
+        _backend.loadState(method(:onLiveLoaded));
     }
 
     function onLiveLoaded(result as Lang.Object or Null, error as Lang.String or Null) as Void {
@@ -205,11 +256,13 @@ class DeviceControlView extends WatchUi.View {
             WatchUi.requestUpdate();
             return;
         }
-        if (result != null && result instanceof Lang.Dictionary) {
-            _zones = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
+        var state = _backend.stateFrom(result);
+        if (state != null) {
+            applyState(state);
+            _zones = state.sides;
             resetConfirmed();
             if (!_primaryApplied && _zones.size() > 0) {
-                _selectedZone = DeviceModel.primaryZoneIndex(_zones);
+                _selectedZone = state.homeIndex;
                 _primaryApplied = true;
             } else if (_selectedZone >= _zones.size()) {
                 _selectedZone = _zones.size() > 0 ? _zones.size() - 1 : 0;
@@ -218,7 +271,7 @@ class DeviceControlView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    function getSelectedZone() as OrionZone or Null {
+    function getSelectedZone() as BedSide or Null {
         if (_zones.size() == 0 || _selectedZone < 0 || _selectedZone >= _zones.size()) {
             return null;
         }
@@ -230,6 +283,7 @@ class DeviceControlView extends WatchUi.View {
             return;
         }
         flushPending();
+        clearNoteStatus();
         _selectedZone = (_selectedZone + 1) % _zones.size();
         WatchUi.requestUpdate();
     }
@@ -239,19 +293,26 @@ class DeviceControlView extends WatchUi.View {
             return;
         }
         flushPending();
+        clearNoteStatus();
         _selectedZone = (_selectedZone - 1 + _zones.size()) % _zones.size();
         WatchUi.requestUpdate();
     }
 
     // Power taps are never batched. The tap shows at once and ends any quiet
-    // period, so a waiting temperature for the zone travels in the same PUT
-    // (REQ-009). With a request in flight it is sent when that one returns.
+    // period, so a waiting temperature for the side is sent with it, or just
+    // before it when the backend needs two requests (REQ-009). With a
+    // request in flight it is sent when that one returns. On the load-error
+    // screen SELECT retries the load.
     function togglePower() as Void {
-        if (_loading || _error != null) {
+        if (_loading) {
+            return;
+        }
+        if (_error != null) {
+            refresh();
             return;
         }
         var zone = getSelectedZone();
-        if (zone == null) {
+        if (zone == null || zone.readOnly) {
             return;
         }
         zone.on = !zone.on;
@@ -261,31 +322,44 @@ class DeviceControlView extends WatchUi.View {
     }
 
     function increaseTemp() as Void {
-        adjustTemp(TEMP_STEP);
+        adjustTemp(_step);
     }
 
     function decreaseTemp() as Void {
-        adjustTemp(-TEMP_STEP);
+        adjustTemp(-_step);
     }
 
     // Changes the shown value only and restarts the quiet period. Never
-    // calls _auth and is never blocked by a request in flight.
+    // calls the backend and is never blocked by a request in flight.
     private function adjustTemp(delta as Lang.Float) as Void {
         if (_loading || _error != null) {
             return;
         }
         var zone = getSelectedZone();
-        if (zone == null) {
+        if (zone == null || zone.readOnly) {
             return;
         }
-        var newTemp = zone.temp + delta;
-        if (newTemp < _device.tempMin) {
-            newTemp = _device.tempMin;
+        // With no set temperature the first press starts from startTemp
+        // (REQ-012); with neither there is nothing to change.
+        var base = zone.temp;
+        if (base == null) {
+            base = zone.startTemp;
         }
-        if (newTemp > _device.tempMax) {
-            newTemp = _device.tempMax;
+        if (base == null) {
+            _status = "No temperature to change yet";
+            _statusIsError = false;
+            WatchUi.requestUpdate();
+            return;
         }
-        if (newTemp == zone.temp) {
+        var newTemp = base + delta;
+        if (newTemp < _tempMin) {
+            newTemp = _tempMin;
+        }
+        if (newTemp > _tempMax) {
+            newTemp = _tempMax;
+        }
+        var current = zone.temp;
+        if (current != null && newTemp == current) {
             // At the limit: no batch, no timer.
             return;
         }
@@ -312,9 +386,10 @@ class DeviceControlView extends WatchUi.View {
         sendNextIfIdle();
     }
 
-    // The only caller of updateLiveDeviceZones(). Sends the first zone whose
-    // shown values differ from its confirmed values, one zone per request,
-    // and only when no request is in flight (REQ-011).
+    // The only sender of updates. Sends the first side whose shown values
+    // differ from its confirmed values, one side per request and one
+    // backend call per batch, and only when no request is in flight
+    // (REQ-011). Read-only sides are never sent.
     private function sendNextIfIdle() as Void {
         if (_inFlight) {
             return;
@@ -322,21 +397,18 @@ class DeviceControlView extends WatchUi.View {
         for (var i = 0; i < _zones.size(); i += 1) {
             var zone = _zones[i];
             var conf = _confirmed.get(zone.id);
-            if (conf == null) {
+            if (conf == null || zone.readOnly) {
                 continue;
             }
             var inQuiet = (_quietZoneId != null) && zone.id.equals(_quietZoneId);
-            var sendTemp = !inQuiet && !sameTemp(zone.temp, conf.temp);
+            var sendTemp = !inQuiet && zone.temp != null && !sameTemp(zone.temp, conf.temp);
             var sendOn = (zone.on != conf.on);
+            if (sendTemp && sendOn && !_powerWithTemp) {
+                // Temperature first; the power change goes after its reply.
+                sendOn = false;
+            }
             if (!sendTemp && !sendOn) {
                 continue;
-            }
-            var body = { "id" => zone.id } as Lang.Dictionary;
-            if (sendOn) {
-                body.put("on", zone.on);
-            }
-            if (sendTemp) {
-                body.put("temp", zone.temp);
             }
 
             _sentZoneId = zone.id;
@@ -344,9 +416,14 @@ class DeviceControlView extends WatchUi.View {
             _sentOn = sendOn ? zone.on : null;
             _inFlight = true;
             _status = "Updating…";
+            _statusIsError = false;
             WatchUi.requestUpdate();
-            // Nothing after the _auth call: the callback may already have run.
-            _auth.updateLiveDeviceZones(_device.serialNumber, [body], method(:onUpdateDone));
+            // Nothing after the backend call: the callback may already have run.
+            if (sendOn) {
+                _backend.setPower(zone.id, zone.on, sendTemp ? zone.temp : null, method(:onUpdateDone));
+            } else {
+                _backend.setTemperature(zone.id, zone.temp as Lang.Float, method(:onUpdateDone));
+            }
             return;
         }
     }
@@ -355,10 +432,11 @@ class DeviceControlView extends WatchUi.View {
         _inFlight = false;
         if (error != null) {
             revertSentFields();
-            _status = "Error: " + error;
+            _status = error;
+            _statusIsError = true;
         } else {
-            adoptServerZones(result);
-            _status = "";
+            _status = adoptServerState(_backend.stateFrom(result));
+            _statusIsError = false;
         }
         _sentZoneId = "";
         _sentTemp = null;
@@ -367,10 +445,10 @@ class DeviceControlView extends WatchUi.View {
         sendNextIfIdle();
     }
 
-    // Failed PUT: each sent field the user has not changed since goes back to
-    // the confirmed value, which is the value from before the batch began
-    // (REQ-006). A field changed during the send stays on screen and is sent
-    // next (REQ-010). Confirmed values never change on failure.
+    // Failed update: each sent field the user has not changed since goes
+    // back to the confirmed value, which is the value from before the batch
+    // began (REQ-006). A field changed during the send stays on screen and
+    // is sent next (REQ-010). Confirmed values never change on failure.
     private function revertSentFields() as Void {
         var zone = findZone(_sentZoneId);
         var conf = _confirmed.get(_sentZoneId);
@@ -387,16 +465,13 @@ class DeviceControlView extends WatchUi.View {
         }
     }
 
-    // Successful PUT: take the server's zones as today, except that a field
-    // the user changed again since it was sent (or that was never sent and
-    // is dirty) keeps its shown value (REQ-012). All lookups are by zone id.
-    private function adoptServerZones(result as Lang.Object or Null) as Void {
-        var updated = [] as Lang.Array<OrionZone>;
-        if (result != null && result instanceof Lang.Dictionary) {
-            updated = DeviceModel.zonesFromLiveJson(result as Lang.Dictionary);
-        }
-        if (updated.size() == 0) {
-            // No zones in the reply: trust the PUT.
+    // Successful update: take the server's sides, except that a field the
+    // user changed again since it was sent (or that was never sent and is
+    // dirty) keeps its shown value (REQ-012). All lookups are by side id.
+    // Returns the status text to show.
+    private function adoptServerState(state as BedState or Null) as Lang.String {
+        if (state == null || state.sides.size() == 0) {
+            // No sides in the reply: trust the update.
             var sentConf = _confirmed.get(_sentZoneId);
             if (sentConf != null) {
                 var sentTemp = _sentTemp;
@@ -408,14 +483,19 @@ class DeviceControlView extends WatchUi.View {
                     sentConf.on = sentOn;
                 }
             }
-            return;
+            if (state != null && state.notice != null) {
+                return state.notice as Lang.String;
+            }
+            return "";
         }
 
-        var newConfirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        applyState(state);
+        var updated = state.sides;
+        var tempDropped = false;
+        var newConfirmed = {} as Lang.Dictionary<Lang.String, BedSide>;
         for (var i = 0; i < updated.size(); i += 1) {
             var nz = updated[i];
-            var serverOn = nz.on;
-            var serverTemp = nz.temp;
+            var serverCopy = nz.copy();
             var oldShown = findZone(nz.id);
             var oldConf = _confirmed.get(nz.id);
             if (oldShown != null && oldConf != null) {
@@ -424,6 +504,9 @@ class DeviceControlView extends WatchUi.View {
                 var sentTemp = _sentTemp;
                 if (isSent && sentTemp != null) {
                     expectedTemp = sentTemp;
+                    if (nz.temp == null) {
+                        tempDropped = true;
+                    }
                 }
                 var expectedOn = oldConf.on;
                 var sentOn = _sentOn;
@@ -437,7 +520,7 @@ class DeviceControlView extends WatchUi.View {
                     nz.on = oldShown.on;
                 }
             }
-            newConfirmed.put(nz.id, new OrionZone(nz.id, serverOn, serverTemp));
+            newConfirmed.put(nz.id, serverCopy);
         }
 
         _zones = updated;
@@ -450,9 +533,22 @@ class DeviceControlView extends WatchUi.View {
             _timer.stop();
             _quietZoneId = null;
         }
+        if (tempDropped) {
+            // The server took the write but reports no set temperature (the
+            // side stays off): show the dash and say why (REQ-014).
+            return "Side is off. Temperature not set.";
+        }
+        return state.notice != null ? state.notice as Lang.String : "";
     }
 
-    private function findZone(zoneId as Lang.String) as OrionZone or Null {
+    private function applyState(state as BedState) as Void {
+        _tempMin = state.tempMin;
+        _tempMax = state.tempMax;
+        _step = state.step;
+        _tempFormat = state.tempFormat;
+    }
+
+    private function findZone(zoneId as Lang.String) as BedSide or Null {
         for (var i = 0; i < _zones.size(); i += 1) {
             if (_zones[i].id.equals(zoneId)) {
                 return _zones[i];
@@ -462,8 +558,12 @@ class DeviceControlView extends WatchUi.View {
     }
 
     // Float temperatures do not survive +0.5 then -0.5 exactly, so compare
-    // with a small tolerance instead of ==.
-    private function sameTemp(a as Lang.Float, b as Lang.Float) as Lang.Boolean {
+    // with a small tolerance instead of ==. Two nulls are equal; a null and
+    // a number are not.
+    private function sameTemp(a as Lang.Float or Null, b as Lang.Float or Null) as Lang.Boolean {
+        if (a == null || b == null) {
+            return a == null && b == null;
+        }
         var d = a - b;
         if (d < 0) {
             d = -d;
@@ -471,13 +571,13 @@ class DeviceControlView extends WatchUi.View {
         return d < 0.01;
     }
 
-    // Rebuild _confirmed from _zones with new OrionZone copies. Sharing the
-    // objects would make shown and confirmed always equal.
+    // Rebuild _confirmed from _zones with copies. Sharing the objects would
+    // make shown and confirmed always equal.
     private function resetConfirmed() as Void {
-        _confirmed = {} as Lang.Dictionary<Lang.String, OrionZone>;
+        _confirmed = {} as Lang.Dictionary<Lang.String, BedSide>;
         for (var i = 0; i < _zones.size(); i += 1) {
             var z = _zones[i];
-            _confirmed.put(z.id, new OrionZone(z.id, z.on, z.temp));
+            _confirmed.put(z.id, z.copy());
         }
     }
 
@@ -488,37 +588,26 @@ class DeviceControlView extends WatchUi.View {
         for (var i = 0; i < _zones.size(); i += 1) {
             var zone = _zones[i];
             var conf = _confirmed.get(zone.id);
-            if (conf != null && (zone.on != conf.on || !sameTemp(zone.temp, conf.temp))) {
+            if (conf != null && !zone.readOnly && (zone.on != conf.on || (zone.temp != null && !sameTemp(zone.temp, conf.temp)))) {
                 return true;
             }
         }
         return false;
     }
 
-    // Clears a stale "Error: …" status. Leaves "Updating…" alone.
+    // Clears a stale error status. Leaves "Updating…" and notes alone.
     private function clearErrorStatus() as Void {
-        if (_status.find("Error") == 0) {
+        if (_statusIsError) {
             _status = "";
+            _statusIsError = false;
         }
     }
 
-    private function drawWrapped(dc as Graphics.Dc, x as Lang.Number, y as Lang.Number, maxWidth as Lang.Number, text as Lang.String) as Void {
-        var maxChars = (maxWidth / 8).toNumber();
-        if (maxChars < 12) {
-            maxChars = 12;
-        }
-        var remaining = text;
-        var lineY = y;
-        var lines = 0;
-        while (remaining.length() > 0 && lines < 8) {
-            if (remaining.length() <= maxChars) {
-                dc.drawText(x, lineY, Graphics.FONT_SMALL, remaining, Graphics.TEXT_JUSTIFY_LEFT);
-                break;
-            }
-            dc.drawText(x, lineY, Graphics.FONT_SMALL, remaining.substring(0, maxChars), Graphics.TEXT_JUSTIFY_LEFT);
-            remaining = remaining.substring(maxChars, remaining.length());
-            lineY += 22;
-            lines += 1;
+    // On a side switch: a note about the old side ("No temperature to
+    // change yet") goes; "Updating…" and errors stay.
+    private function clearNoteStatus() as Void {
+        if (!_inFlight && !_statusIsError) {
+            _status = "";
         }
     }
 }

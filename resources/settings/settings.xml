@@ -16,4 +16,18 @@
             </settingConfig>
         </setting>
     </group>
+    <group id="orionBackend" title="@Strings.BackendGroupTitle" description="@Strings.BackendGroupDesc">
+        <setting propertyKey="@Properties.backend" title="@Strings.BackendTitle" prompt="@Strings.BackendPrompt">
+            <settingConfig type="list">
+                <listEntry value="0">@Strings.BackendOrion</listEntry>
+                <listEntry value="1">@Strings.BackendEmberTide</listEntry>
+            </settingConfig>
+        </setting>
+        <setting propertyKey="@Properties.et_url" title="@Strings.EtUrlTitle" prompt="@Strings.EtUrlPrompt">
+            <settingConfig type="alphaNumeric" required="false" maxLength="200"/>
+        </setting>
+        <setting propertyKey="@Properties.et_key" title="@Strings.EtKeyTitle" prompt="@Strings.EtKeyPrompt">
+            <settingConfig type="password" required="false" maxLength="128"/>
+        </setting>
+    </group>
 </settings>
