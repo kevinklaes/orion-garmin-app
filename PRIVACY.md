@@ -19,11 +19,14 @@ publishing, host it at a stable URL and fill in a real owner/contact.
 | OTP verification code | You enter it on-device, once, per sign-in | Never persisted — used once to complete sign-in, then discarded | Orion's REST API, to exchange for an access/refresh token |
 | Access token / refresh token (phone+OTP sign-in) | Returned by Orion's REST API after OTP verification | `Application.Storage` on-device; refreshed automatically before use when near expiry | Orion's REST API, as an `Authorization: Bearer` credential on every request |
 | Primary side preference (bed side A or B the app opens on) | You choose it in the app's settings in Garmin Connect | `Application.Properties` on-device | Not sent anywhere by this app — it only decides which side of the bed the watch shows first |
+| Ember & Tide address (advanced, optional) | You enter it in the app's settings in Garmin Connect | `Application.Properties` on-device | Used only as the address of your own Ember & Tide server; the app sends its requests there |
+| Ember & Tide key (advanced, optional) | You enter it in the app's settings in Garmin Connect | `Application.Properties` on-device | Only to the Ember & Tide address you entered, as an `Authorization: Bearer` credential on every request |
 | Live bed state (device list, per-zone power/temperature) | Fetched live from Orion's REST API | Held in memory on-device for display; not persisted | Not sent anywhere further — this is data *received* from Orion for display and control |
 
 No data is sent to the app developer or any third party other than Orion's
 own REST API. There is no analytics, crash reporting, or tracking SDK in
-this app.
+this app. In Ember & Tide mode, bed state and commands go to the Ember &
+Tide server you chose, not to Orion.
 
 ## Your controls
 
