@@ -1,7 +1,8 @@
 # Testing the app yourself
 
-A small unit-test suite (`source/PrimarySideTest.mc`) covers the primary
-side logic (see [Unit tests](#unit-tests)). Everything else is still
+A small unit-test suite (`source/PrimarySideTest.mc`,
+`source/GlanceCacheTest.mc`) covers the primary side logic and the glance's
+text and saved state (see [Unit tests](#unit-tests)). Everything else is still
 verified manually, via the Connect IQ simulator or a real device (Connect IQ
 apps aren't easily unit-testable the way a typical backend service is). The
 README's "Build" section only shows a raw `monkeyc` compile command, not how
@@ -10,7 +11,12 @@ to actually run and click through the app; this doc covers that.
 ## What you need
 
 - **Connect IQ SDK** + a developer key (`.der` file) — same ones used for
-  building (see [README.md](../README.md#build)).
+  building (see [README.md](../README.md#build)). The SDK path is in
+  `~/Library/Application Support/Garmin/ConnectIQ/current-sdk.cfg`;
+  `monkeyc`, `monkeydo` and `connectiq` are in its `bin/`, which is not on
+  `PATH`. Keep the key outside the repo and never commit it; write build
+  output outside the repo or to `bin/` (ignored). There is no CI build
+  (oga-zha): every build and test run is local.
 - **A real Orion Sleep account** (API key, or a phone number you can
   receive an OTP text on). The app talks to the real production API at
   `https://api1.orionbed.com` — there's no mock/sandbox mode. Without real
@@ -61,14 +67,23 @@ pgrep -f "ConnectIQ.app/Contents/MacOS/simulator" || "$SDK/connectiq" &
 perl -e 'alarm 150; exec @ARGV' "$SDK/monkeydo" bin/OrionSleep-test.prg fenix7 -t
 ```
 
-A passing run ends with `PASSED (passed=9, failed=0, errors=0)`. **Read the
+A passing run ends with `PASSED (passed=20, failed=0, errors=0)`. **Read the
 result from that last output line, not from the exit code**: `monkeydo -t`
 has been seen to exit 1 for passing and failing runs alike. The `perl alarm`
 wrapper stops a hung run after 150 seconds.
 
-The tests never write a property, so the side they expect comes from
-whatever `primary_side` the simulator currently has; they pass with either
-value.
+The tests write no property, so the side they expect comes from whatever
+`primary_side` the simulator currently has; they pass with either value.
+Four `GlanceCacheTest` tests write the two glance Storage keys
+(`glance_bed`, `glance_cache`) and put back what was there in a `finally`
+block. The simulator's Storage is shared between test runs and app runs, so
+a test run killed half way can leave a glance bed of `B1` or `SN`: opening a
+real bed in the app, or deleting the app's data in the simulator, fixes it.
+
+A test run also starts the app class, so `getInitialView()` registers the
+30-minute background event in the simulator, and the simulator may fire
+that event (and print `Background: GlanceRefresh: …` lines) during a later
+test run. That is expected and does not affect the result.
 
 ## What to actually click through
 
@@ -155,6 +170,95 @@ a degree or two.
 
 START/LAP (refresh) is ignored while a temperature change is waiting or a
 request is in flight; press it again after the send finishes.
+
+## Glance and background refresh (oga-6bf)
+
+The glance's second line comes from saved state, never from the network
+(see docs/DESIGN.md, "Glance state"):
+
+| State | Second line |
+| --- | --- |
+| Signed out | `Sign in required` |
+| Signed in, no saved state for the glance bed | `Tap to control` |
+| Primary side on | `On · 19.5°` |
+| Primary side off | `Off · Tap to control` |
+
+Saved state older than 2 hours keeps its text but is marked old: dark gray
+instead of light gray on colour screens, a dashed underline (same colour) on
+the black-and-white Instinct products (`instinct3solar45mm`,
+`instincte40mm`, `instincte45mm`).
+
+**Simulator menus.** The SDK guide says a background temporal event can be
+triggered from the simulator's **Simulation** menu, and that scheduled
+events also fire on their own. The glance is started from the simulator's
+glance/widget preview for a device that has glances. The exact menu item
+names were **not** confirmed when this section was written (the
+verification run was headless; see the oga-6bf implementation summary):
+whoever first runs these checks with the simulator window in front of them
+should replace this paragraph with the real names. Known simulator issue
+(SDK guide): it may also run the background service of apps tested earlier,
+even when another app is the one running.
+
+**Console lines.** Every background request prints one line and every run
+prints one outcome line, prefixed `Background:` in the console. Tokens are
+never printed.
+
+- Requests: `GlanceRefresh: POST /v1/auth/refresh` (only for a phone + code
+  sign-in whose token expires within 60 s) and
+  `GlanceRefresh: GET /v1/devices/<serial>/live`.
+- Outcomes: `GlanceRefresh: updated`;
+  `GlanceRefresh: skipped: signed out`, `skipped: no glance bed`,
+  `skipped: no phone connection`, `skipped: the app saved newer state`;
+  `GlanceRefresh: failed: <why>` (`refresh <code>`, `live <code>`,
+  `no refresh token`, `refresh reply shape`, `no zones in reply`).
+
+**Without an Orion account**, seed Storage with a temporary local change
+that you do not commit, for example a few `Application.Storage.setValue`
+lines at the top of `getGlanceView()` (keys `orion_access_token`,
+`orion_auth_method`, `glance_bed`, `glance_cache`; see
+`source/GlanceCache.mc` for the cache format). With a fake token a
+background run prints the GET line and `failed: live 401`, and changes
+nothing.
+
+**Checks.**
+
+1. **Glance starts.** On `fenix7` and `instinct3solar45mm` (32 KB glance),
+   start the glance: both lines draw, no "Symbol Not Found", no
+   out-of-memory error.
+2. **Each state.** Signed out: `Sign in required`. Signed in, no saved
+   state: `Tap to control`. Primary side on at 19.5: `On · 19.5°`. Off:
+   `Off · Tap to control`.
+3. **Old state.** Seed `at` three hours back. `fenix7`: visibly dimmer than
+   a fresh line. `instinct3solar45mm`: same brightness, dashed underline.
+   Check that `·` and `°` draw on the Instinct, and that
+   `Off · Tap to control` fits on `instinct3solar45mm`, `fenix7` and
+   `edge840`.
+4. **Primary side.** With both zones saved, change `primary_side` in the App
+   Settings Editor: the glance shows the other side, with no request line.
+5. **Nothing to do.** Signed out, trigger the event:
+   `skipped: signed out`, no request line. Signed in, no glance bed:
+   `skipped: no glance bed`.
+6. **32 KB background products.** On `edge840` and `instinct3solar45mm`,
+   trigger the event with a token and a glance bed stored: an outcome line
+   and no out-of-memory error. With a real account expect the GET line and
+   `updated`. Note the peak memory the simulator shows for the background
+   and the glance.
+7. **Connection off.** Turn the simulator's connection off (its Settings
+   menu, as for the temperature batching checks) and trigger:
+   `skipped: no phone connection` or a `failed` line; glance text, saved
+   state and tokens unchanged.
+8. **Redraw.** `fenix7`, glance on screen, a run that succeeds: the glance
+   shows the new state without being touched. If it does not, the state
+   still shows the next time the glance is shown (oga-6bf risk R-2).
+9. **Registration.** Start the app twice:
+   `Background.getTemporalEventRegisteredTime()` is a 1800-second duration
+   both times.
+10. **With a real account.** Open the bed, press UP twice, wait for the
+    PUT, go back to the glance: the new temperature. Toggle power:
+    `Off · Tap to control`. The console shows the same requests in the same
+    order as before oga-6bf, and checks 1 and 5 of
+    [Temperature batching](#temperature-batching-oga-23f) still pass. Sign
+    out: `Sign in required`.
 
 ## Known gaps (not bugs, just not built yet)
 

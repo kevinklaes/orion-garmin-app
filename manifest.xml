@@ -9,9 +9,12 @@
      device's compiler.json under the SDK's Devices/ dir: appTypes lists
      "glance" as a capability of watchApp, not a standalone "widget" type),
      so a glance is just an extra view on an ordinary Device App, not a
-     type change. The glance does no network I/O (tight update budget); it
-     only reads OrionAuth.hasStoredToken(). Selecting it opens the same
-     getInitialView() flow a launch from the Apps menu would.
+     type change. The glance does no network I/O (tight update budget): it
+     reads the sign-in flag and the bed state saved in Application.Storage
+     (source/GlanceCache.mc), which the app and the 30-minute background
+     refresh (source/GlanceRefresh.mc, Background permission below) keep
+     current (oga-6bf). Selecting it opens the same getInitialView() flow a
+     launch from the Apps menu would.
 
      Targets both watch and Edge device families (multi-family). Screen
      shapes/resolutions differ substantially between them (see compiler.json

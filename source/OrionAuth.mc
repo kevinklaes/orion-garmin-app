@@ -5,7 +5,7 @@
 // Mirrors GarminMerge's GitHubOAuth.mc storeToken()/hasStoredToken()/
 // clearStoredToken() pattern, adapted for Orion's two auth methods and
 // its OTP refresh token -- see docs/DESIGN.md's "Auth: dual provisioning
-// paths" and "Token refresh vs. Background Service" sections.
+// paths" and "Token refresh and the glance's background refresh" sections.
 //
 // Storage vs. Properties (per docs/DESIGN.md): Application.Storage holds
 // everything that rotates or is only known post-validation (active access

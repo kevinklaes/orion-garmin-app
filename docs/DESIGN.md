@@ -130,24 +130,147 @@ own. The `primary_side` setting picks the zone the control view opens on.
   open, on its first successful load. After that a refresh or a temperature
   change keeps whatever zone the user switched to, and a changed setting takes
   effect on the next open.
-- **Reuse**: the helper uses only `Lang` and `Application`, so the glance
-  feature (oga-6bf) can call the same helper to show the primary side.
+- **Reuse**: the glance (oga-6bf) uses the same helper to pick the side it
+  shows; `primaryZoneId()` and `zoneIdForSide()` are annotated `(:glance)` for
+  that. The glance still reads the property only through the helper.
 
-## Token refresh vs. Background Service
+## Token refresh and the glance's background refresh
 
 `api.py`'s `ensure_valid_token()` is called before every authenticated
 request and refreshes synchronously if the token is expired/near-expiry;
 API keys skip this (long-lived, no refresh flow — a revoked key just 401s).
-Connect IQ's `Toybox.Background` API exists for periodic low-power sync
-(temporal/geofence/service-triggered), but adopting it here would mean an
+The app mirrors that: refresh on demand, checked immediately before each
+authenticated call, with the same 60-second margin (`_token_expired`).
+
+**Earlier decision: no Background Service.** `Toybox.Background` costs an
 extra manifest permission, a second execution context with a much smaller
-API surface, and store-review scrutiny for battery impact — for a "check
-bed status, maybe flip it on" app, none of that buys anything a user will
-notice. **Decision: no Background Service.** Mirror `api.py` exactly:
-refresh-on-demand, checked immediately before each authenticated call,
-using the same margin-based expiry check (`_token_expired`). Re-auth-on-
-launch is sufficient because every screen in this app already makes a live
-network call when opened (there is no passive/ambient mode to keep fresh).
+API surface, and store-review scrutiny for battery use, and every screen of
+the app already makes a live call when it opens.
+
+**Reversed for the glance refresh only** (Kevin, 2026-11-23, oga-6bf). The
+glance shows whether the user's side of the bed is on and what it is set to
+(see [Glance state](#glance-state)). A glance cannot wait on the network,
+so it reads saved state, and without a background refresh that state would
+only be as new as the last time the app was opened. Nothing else in the app
+uses the background process.
+
+- **Interval**: a temporal event every 30 minutes
+  (`GlanceCache.REFRESH_INTERVAL_SECONDS`, 1800). `OrionSleepApp` registers
+  it in `getInitialView()`, so it starts once the app has been opened after
+  the update is installed; it is not registered again when the same interval
+  is already registered. The glance and the background never register it.
+- **Battery**: up to 48 short wake-ups a day. Each makes one request through
+  the phone (`GET /v1/devices/{serial_number}/live`), two when a phone +
+  code token needs refreshing first. A run makes no request when signed out,
+  when there is no glance bed, or when the watch reports no phone
+  connection. The event is registered on every product, including the two
+  with no glance (`etrextouch`, `gpsmaph1`): the only run-time signal,
+  `DeviceSettings.isGlanceModeEnabled`, is documented in terms of key
+  events, and a wrong `false` would silently stop the refresh on a product
+  that has a glance. The cost is the wake-ups on those two handhelds.
+- **How the background gets a valid token** (`source/GlanceRefresh.mc`): it
+  reads the tokens the app stored. With an API key there is nothing to
+  refresh. With phone + code, if the access token expires within 60 seconds
+  (`OrionSession.REFRESH_MARGIN_SECONDS`, the app's margin) it sends
+  `POST /v1/auth/refresh` first and saves the new tokens with
+  `OrionSession.saveOtpTokens()` (in a fixed order: method, refresh token,
+  access token, expiry, so a run killed between writes leaves a working
+  refresh token; an empty refresh token in a reply keeps the stored one). It
+  never shows UI and never asks the user anything. On any failure (refresh
+  rejected, 401/403, no network, a reply too large or the wrong shape, the
+  30-second limit) it changes nothing: not the cache, not the tokens. Saving
+  the tokens from a successful refresh is its only token write.
+- **The app after a background refresh**: `OrionAuth.startAuthenticatedCall()`
+  reloads the tokens from Storage before it checks expiry, so a view that
+  stayed open across a background run uses the new tokens and never sends a
+  refresh token that the background already replaced. The app and the
+  background refreshing in the same few seconds is a known, accepted gap: the
+  user sees the normal error and a retry works.
+- **Its own small fetcher**: the background does not load `OrionClient` or
+  `OrionAuth`. The rules both sides need (Storage keys, margin, base URL,
+  token parser, token save) live in `source/OrionSession.mc`. Sizes from
+  `monkeyc --build-stats 0`, the same on `fenix7`, `venu3`, `edge840` and
+  `instinct3solar45mm`:
+
+  | Build | Background (code + data) | Glance (code + data) |
+  | --- | --- | --- |
+  | Before oga-6bf | none | whole app: 18,307 + 6,359 = 24,666 bytes |
+  | Now | 2,963 + 1,811 = 4,774 bytes | 4,071 + 2,109 = 6,180 bytes |
+  | `OrionClient` + `OrionAuth` in the background instead | 5,774 + 2,734 = 8,508 bytes before a delegate and the cache | not measured |
+
+  The background budget is 32 KB on 13 products (`edge540`, `edge550`,
+  `edge840`, `edge850`, `edge1040`, `edge1050`, `edgeexplore2`, `edgemtb`,
+  `etrextouch`, `gpsmaph1`, `instinct3solar45mm`, `instincte40mm`,
+  `instincte45mm`) and 64 KB elsewhere; the glance budget is 32 KB on the
+  three Instinct products. The loaded code is only part of a run: the
+  parsed `/live` reply also has to fit, and its size has not been measured.
+  If it does not fit, the request callback gets a negative code and the run
+  fails cleanly as above.
+
+## Glance state
+
+What the glance shows (`source/GlanceCache.mc`, `secondLine()`):
+
+| State | Second line |
+| --- | --- |
+| Signed out | `Sign in required` |
+| Signed in, nothing usable saved | `Tap to control` |
+| Primary side on | `On · 19.5°` (the set temperature, formatted by `DeviceModel.tempText()` exactly as on the control screen: one decimal, no conversion, no unit letter) |
+| Primary side off | `Off · Tap to control` |
+
+The primary side comes from `DeviceModel.primaryZoneId()` with the same
+first-zone fallback as the control view, read each time the glance draws.
+
+**Storage keys** (`Application.Storage`):
+
+- `glance_bed`: the serial number of the **glance bed**, the bed last opened
+  in the app. `DeviceControlView.onShow()` stores it, both when the bed is
+  opened from the device list and on the single-device auto-open, so an
+  account with one bed gets it the first time the app opens after sign-in.
+  With several beds and none opened yet there is no glance bed: the glance
+  says `Tap to control` and background runs make no request.
+- `glance_cache`: one dictionary, written whole so a run killed half way
+  can never leave half a cache:
+  `{"bed": serial, "at": epoch seconds, "zones": [{"id", "on", "temp"}, ...]}`.
+  It holds every zone the bed reports, so changing the primary side needs no
+  fetch. No unit is stored. Nothing in it is specific to Orion's reply
+  format, so another backend can write it (oga-19od).
+
+**Writers**, all through `GlanceCache.write()`, which writes only when the
+serial is the glance bed and the zone list is not empty:
+
+- the control view, after each successful live load and each successful
+  update, from server-confirmed values only (never a temperature still
+  waiting to be sent, never after a failed update);
+- the device list, when it loads live state for the glance bed (other beds
+  in the list are not written);
+- the background refresh, every 30 minutes.
+
+**Reader**: only the glance. A cache for a bed other than the glance bed, or
+with no zones, counts as nothing saved. Switching to another bed therefore
+shows `Tap to control` until that bed's state is saved.
+
+**Old state**: a cache more than 2 hours old
+(`GlanceCache.STALE_AFTER_SECONDS`) keeps its text but is marked old. On
+screens with a gray the line is drawn in dark gray instead of light gray. On
+the black-and-white Instinct products (`instinct3solar45mm`, `instincte40mm`,
+`instincte45mm`) it keeps its colour and gets a dashed underline, which adds
+no width; `monkey.jungle` picks one of the two `canDim()` versions per
+product with `excludeAnnotations`. A fetch time in the future (the watch
+clock was changed) counts as fresh.
+
+**Newer wins**: a background run passes the second it started, and
+`write()` keeps a cache fetched at or after that second. A change the user
+made in the app while the run waited for its reply is not replaced by the
+older reading.
+
+**Redraw**: a run that changed the cache exits with `Background.exit(true)`;
+`OrionSleepApp.onBackgroundData()` only calls `WatchUi.requestUpdate()`
+(the state is already in Storage). Writes by the app need no redraw: the
+glance is not on screen while the app is open.
+
+**Sign-out** (`OrionAuth.clearStoredToken()`, which every sign-out path
+uses) deletes both keys along with the tokens.
 
 ## Canonical control endpoints (from `api.py` / `openapi.yaml`)
 
@@ -207,8 +330,10 @@ placeholder `StatusView`)
 ## Store publication
 
 Same shape as GarminMerge's `docs/STORE_PUBLICATION.md` + `PRIVACY.md`:
-`Communications` is the only permission needed (already justified —
-`makeWebRequest` to the Orion REST API); a privacy policy is required
+two permissions: `Communications` (`makeWebRequest` to the Orion REST API)
+and, since oga-6bf, `Background` (the glance's 30-minute refresh, see
+[above](#token-refresh-and-the-glances-background-refresh)); a privacy
+policy is required
 because the app handles account credentials (API key/OTP token) and bed
 state. See [docs/STORE_PUBLICATION.md](STORE_PUBLICATION.md) (pre-flight
 checklist + drafted listing copy) and [PRIVACY.md](../PRIVACY.md) (privacy
