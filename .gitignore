@@ -17,7 +17,6 @@ export/
 .classpath
 
 # Gas Town / polecat local (not app source)
-.beads/
 .runtime/
 CLAUDE.md
 
@@ -25,3 +24,13 @@ CLAUDE.md
 local.properties
 *.der
 developer_key*
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# Gas City
+.beads/*
+!.beads/identity.toml
